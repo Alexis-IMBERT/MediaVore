@@ -285,6 +285,7 @@ class MediaRepositoryImpl implements MediaRepository {
     DateTime? releaseDate;
     int? seasonNum;
     int? episodeNum;
+    int? runtime;
 
     if (item.mediaType == MediaType.tv) {
       // Logic: Find the FIRST unseen episode air date
@@ -334,6 +335,7 @@ class MediaRepositoryImpl implements MediaRepository {
                 releaseDate = DateTime.parse(airDateStr);
                 seasonNum = season.seasonNumber;
                 episodeNum = epNum;
+                runtime = ep['runtime'] as int?;
                 break;
               }
             }
@@ -347,6 +349,7 @@ class MediaRepositoryImpl implements MediaRepository {
       if (item.mediaType == MediaType.movie) {
         if (item.releaseDate.isNotEmpty) {
           try {
+            runtime = item.runtime;
             releaseDate = DateTime.parse(item.releaseDate);
           } catch (_) {}
         }
@@ -380,6 +383,7 @@ class MediaRepositoryImpl implements MediaRepository {
         item.mediaType.name,
         releaseDate,
         seasonNumber: seasonNum,
+        runtime: runtime,
         episodeNumber: episodeNum,
       );
     }
@@ -618,6 +622,7 @@ class MediaRepositoryImpl implements MediaRepository {
           DateTime? foundAirDate;
           int? foundSeason;
           int? foundEpisode;
+          int? foundRuntime;
 
           for (final season in sortedSeasons) {
             if (season.seasonNumber == 0) continue;
@@ -663,6 +668,7 @@ class MediaRepositoryImpl implements MediaRepository {
 
                 foundSeason = season.seasonNumber;
                 foundEpisode = epNum;
+                foundRuntime = ep['runtime'] as int?;
                 break;
               }
             } catch (_) {}
@@ -685,6 +691,7 @@ class MediaRepositoryImpl implements MediaRepository {
                 insertedAt: item.seenDate,
                 airDate: foundAirDate,
                 title: detailsItem.title,
+                runtime: foundRuntime,
                 posterPath: detailsItem.posterPath,
               );
               await localDataSource.addQuickAddItem(quick);
@@ -1107,6 +1114,7 @@ class MediaRepositoryImpl implements MediaRepository {
         type: item.mediaType.name,
         title: item.title,
         posterPath: item.posterPath,
+        runtime: item.runtime,
         autoNotify: autoNotify,
       );
       await _refreshNotificationDate(item);
@@ -1135,6 +1143,7 @@ class MediaRepositoryImpl implements MediaRepository {
             releaseDate: m.releaseDate,
             seasonNumber: m.seasonNumber,
             episodeNumber: m.episodeNumber,
+            runtime: m.runtime,
             autoNotify: m.autoNotify,
           ),
         )
@@ -1188,6 +1197,45 @@ class MediaRepositoryImpl implements MediaRepository {
         );
         await cache.cacheItem(item);
         await _refreshNotificationDate(item);
+      } catch (_) {}
+    }
+  }
+
+  @override
+  Future<void> refreshQuickAddItems() async {
+    await _ensureInitialized();
+    final items = await localDataSource.getQuickAddItems();
+
+    for (final item in items) {
+      if (item.runtime != null) continue;
+      if (item.type != 'tv') continue;
+      final seasonNumber = item.seasonNumber;
+      final episodeNumber = item.episodeNumber;
+      if (seasonNumber == null || episodeNumber == null || item.isarId == null) {
+        continue;
+      }
+
+      try {
+        final seasonDetails = await getSeasonDetails(
+          item.tmdbId,
+          seasonNumber,
+        );
+        final episodes = seasonDetails['episodes'] as List?;
+        int? runtime;
+        if (episodes != null) {
+          for (final ep in episodes) {
+            if (ep['episode_number'] == episodeNumber) {
+              runtime = ep['runtime'] as int?;
+              break;
+            }
+          }
+        }
+        if (runtime != null) {
+          await localDataSource.updateQuickAddItemRuntime(
+            item.isarId!,
+            runtime,
+          );
+        }
       } catch (_) {}
     }
   }
@@ -1260,6 +1308,7 @@ class MediaRepositoryImpl implements MediaRepository {
             airDate: m.airDate,
             title: m.title,
             posterPath: m.posterPath,
+            runtime: m.runtime,
           ),
         )
         .toList();
@@ -1337,6 +1386,7 @@ class MediaRepositoryImpl implements MediaRepository {
       airDate: item.airDate,
       title: item.title,
       posterPath: item.posterPath,
+      runtime: item.runtime,
     );
     return localDataSource.addQuickAddItem(model);
   }
@@ -1452,6 +1502,7 @@ class MediaRepositoryImpl implements MediaRepository {
             DateTime? foundAirDate;
             int? foundSeason;
             int? foundEpisode;
+            int? foundRuntime;
 
             for (final season in sortedSeasons) {
               if (season.seasonNumber == 0) {
@@ -1505,6 +1556,7 @@ class MediaRepositoryImpl implements MediaRepository {
 
                   foundSeason = season.seasonNumber;
                   foundEpisode = epNum;
+                  foundRuntime = ep['runtime'] as int?;
                   break;
                 }
               } catch (_) {}
@@ -1534,6 +1586,7 @@ class MediaRepositoryImpl implements MediaRepository {
                 insertedAt: tailSeenDate,
                 airDate: foundAirDate,
                 title: detailsItem.title,
+                runtime: foundRuntime,
                 posterPath: detailsItem.posterPath,
               );
               await localDataSource.addQuickAddItem(quick);

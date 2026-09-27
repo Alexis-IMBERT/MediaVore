@@ -155,6 +155,9 @@ abstract class MediaRepository {
   /// Force refreshes all notified items from network.
   Future<void> refreshNotifiedItems();
 
+  /// Backfills missing runtime metadata for existing quick-add entries from network.
+  Future<void> refreshQuickAddItems();
+
   /// Gets similar media items.
   Future<List<MediaItem>> getSimilarMedia(int id, MediaType type);
 
@@ -220,6 +223,7 @@ class NotifiedItem {
   final DateTime? releaseDate;
   final int? seasonNumber;
   final int? episodeNumber;
+  final int? runtime;
   final bool autoNotify;
 
   NotifiedItem({
@@ -230,6 +234,7 @@ class NotifiedItem {
     this.releaseDate,
     this.seasonNumber,
     this.episodeNumber,
+    this.runtime,
     this.autoNotify = false,
   });
 }
@@ -258,6 +263,7 @@ class QuickAddItem {
   final DateTime? airDate;
   final String? title;
   final String? posterPath;
+  final int? runtime;
 
   QuickAddItem({
     this.isarId,
@@ -269,5 +275,6 @@ class QuickAddItem {
     this.airDate,
     this.title,
     this.posterPath,
+    this.runtime,
   });
 }

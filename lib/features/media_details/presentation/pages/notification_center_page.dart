@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:mediavore/core/utils/formatters.dart';
 import 'package:mediavore/core/utils/release_sort.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/domain/entities/seen_item.dart';
@@ -41,6 +42,7 @@ class NotificationCenterPageState extends State<NotificationCenterPage>
     await provider.refreshNotifiedItems(); // Refresh dates from network
     await provider.loadNotifiedItems();
     await provider.loadAllSeenStatus();
+    await provider.refreshQuickAddItems(); // Backfill missing runtimes
     await provider.loadQuickAddItems();
   }
 
@@ -202,9 +204,11 @@ class _ReleasesTabState extends State<_ReleasesTab> {
                       title += ' (S${item.seasonNumber} E${item.episodeNumber})';
                     }
 
-                    final subtitleText = item.releaseDate != null
-                        ? '${isReleased ? "Released" : "Releases"}: ${DateFormat.yMMMd().format(item.releaseDate!)}'
-                        : releaseSubtitleForItem(item);
+                    final runtimeText = Formatters.formatRuntime(item.runtime);
+                    final subtitleText = (item.releaseDate != null
+                            ? '${isReleased ? "Released" : "Releases"}: ${DateFormat.yMMMd().format(item.releaseDate!)}'
+                            : releaseSubtitleForItem(item)) +
+                        (runtimeText.isNotEmpty ? ' · $runtimeText' : '');
                     final subtitleColor = item.releaseDate != null
                         ? (isReleased ? Colors.green : Colors.orange)
                         : Colors.grey;
@@ -345,6 +349,11 @@ class _QuickAddTabState extends State<_QuickAddTab> {
                     if (qa.seasonNumber != null && qa.episodeNumber != null) {
                       subtitle =
                           'Next: Season ${qa.seasonNumber}, Episode ${qa.episodeNumber}';
+                    }
+                    final runtimeText = Formatters.formatRuntime(qa.runtime);
+                    if (runtimeText.isNotEmpty) {
+                      subtitle =
+                          subtitle.isEmpty ? runtimeText : '$subtitle · $runtimeText';
                     }
 
                     final dismissKey =

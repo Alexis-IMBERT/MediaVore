@@ -320,6 +320,7 @@ class MediaListLocalDataSource {
     DateTime? releaseDate,
     int? seasonNumber,
     int? episodeNumber,
+    int? runtime,
     bool autoNotify = false,
   }) async {
     await _isar.writeTxn(() async {
@@ -341,6 +342,7 @@ class MediaListLocalDataSource {
             releaseDate: releaseDate,
             seasonNumber: seasonNumber ?? existing.seasonNumber,
             episodeNumber: episodeNumber ?? existing.episodeNumber,
+            runtime: runtime ?? existing.runtime,
             autoNotify: existing.autoNotify,
           );
           updated.isarId = existing.isarId;
@@ -356,6 +358,7 @@ class MediaListLocalDataSource {
             releaseDate: releaseDate,
             seasonNumber: seasonNumber,
             episodeNumber: episodeNumber,
+            runtime: runtime,
             autoNotify: autoNotify,
           ),
         );
@@ -369,6 +372,7 @@ class MediaListLocalDataSource {
     DateTime date, {
     int? seasonNumber,
     int? episodeNumber,
+    int? runtime,
   }) async {
     await _isar.writeTxn(() async {
       final existing = await _isar.notifiedItemModels
@@ -386,6 +390,7 @@ class MediaListLocalDataSource {
           releaseDate: date,
           seasonNumber: seasonNumber ?? existing.seasonNumber,
           episodeNumber: episodeNumber ?? existing.episodeNumber,
+          runtime: runtime ?? existing.runtime,
           autoNotify: existing.autoNotify,
         );
         updated.isarId = existing.isarId;
@@ -422,6 +427,27 @@ class MediaListLocalDataSource {
           .count();
       if (existingCount == 0) {
         await _isar.quickAddItemModels.put(item);
+      }
+    });
+  }
+
+  Future<void> updateQuickAddItemRuntime(int isarId, int? runtime) async {
+    await _isar.writeTxn(() async {
+      final existing = await _isar.quickAddItemModels.get(isarId);
+      if (existing != null) {
+        final updated = QuickAddItemModel(
+          tmdbId: existing.tmdbId,
+          type: existing.type,
+          seasonNumber: existing.seasonNumber,
+          episodeNumber: existing.episodeNumber,
+          insertedAt: existing.insertedAt,
+          airDate: existing.airDate,
+          title: existing.title,
+          posterPath: existing.posterPath,
+          runtime: runtime,
+        );
+        updated.isarId = existing.isarId;
+        await _isar.quickAddItemModels.put(updated);
       }
     });
   }
