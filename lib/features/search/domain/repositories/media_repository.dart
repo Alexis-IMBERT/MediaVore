@@ -152,8 +152,20 @@ abstract class MediaRepository {
   /// Watches for changes in notified items.
   Stream<void> watchNotifiedItems();
 
-  /// Force refreshes all notified items from network.
-  Future<void> refreshNotifiedItems();
+  /// Refreshes notified items from the network, series by series.
+  ///
+  /// Only entries missing information (no release date, or one already in the
+  /// past) are reconciled, and each series is throttled to at most once per day
+  /// unless [force] is set.
+  Future<void> refreshNotifiedItems({bool force = false});
+
+  /// Reconciles a single notified series/movie with the network, throttled to at
+  /// most once per day unless [force] is set.
+  Future<void> refreshNotificationForSeries(
+    int tmdbId,
+    MediaType type, {
+    bool force = false,
+  });
 
   /// Backfills missing runtime metadata for existing quick-add entries from network.
   Future<void> refreshQuickAddItems();
@@ -191,7 +203,7 @@ abstract class MediaRepository {
   /// Removes a quick-add entry by its isar id.
   Future<void> removeQuickAddItemById(int isarId);
 
-  /// User opts out of automatic quick-add for a specific streak.
+  /// User opts out of automatic quick-add for a specific episode.
   /// If `seasonNumber`/`episodeNumber` are omitted, behavior defaults to opt-out for the series.
   Future<void> optOutSeries(
     int tmdbId, {
@@ -290,7 +302,7 @@ class QuickAddItem {
 
 /// Why an expected next episode is not present in the Quick Add list.
 enum QuickAddOmissionReason {
-  /// The user dismissed this streak, opting out of Quick Add for it.
+  /// The user dismissed this episode, opting out of Quick Add for it.
   optedOut,
 
   /// The next episode exists but has not aired yet.
