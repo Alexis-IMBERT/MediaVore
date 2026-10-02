@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get_it/get_it.dart';
 import 'package:injectable/injectable.dart';
+import 'package:mediavore/core/network/tmdb_dio.dart';
 import 'package:mediavore/core/security/tmdb_credential_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -17,7 +18,7 @@ void configureDependencies() {}
 @module
 abstract class RegisterModule {
   @singleton
-  Dio get dio => Dio();
+  Dio get dio => createTmdbDio();
   @singleton
   bool get autoInit => true;
 

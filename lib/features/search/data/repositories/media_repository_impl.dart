@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:injectable/injectable.dart';
+import 'package:mediavore/core/cache/cache_warmup_policy.dart';
 import 'package:mediavore/core/cache/media_cache.dart';
 import 'package:mediavore/core/domain/entities/actor_details.dart';
 import 'package:mediavore/core/domain/entities/cast_member.dart';
@@ -16,6 +17,7 @@ import 'package:mediavore/features/media_details/data/models/media_list_item.dar
 import 'package:mediavore/features/search/data/datasources/media_remote_data_source.dart';
 import 'package:mediavore/features/search/domain/repositories/media_repository.dart';
 import 'package:mediavore/core/utils/export_import_serializer.dart';
+import 'package:mediavore/core/utils/bounded_concurrency.dart';
 import 'package:mediavore/core/utils/watch_tail.dart';
 
 /// Implementation of the [MediaRepository] that uses a remote and a local data source.
@@ -24,13 +26,29 @@ class MediaRepositoryImpl implements MediaRepository {
   final MediaRemoteDataSource remoteDataSource;
   final MediaListLocalDataSource localDataSource;
   final MediaCache cache;
+
+  /// Gates the automatic warm-up started on creation. `null` = always run.
+  final CacheWarmupPolicy? warmupPolicy;
   final Completer<void> _initCompleter = Completer<void>();
+
+  /// Max concurrent `/movie|tv/{id}` requests when enriching a result page.
+  static const int enrichmentConcurrency = 4;
+
+  /// In-flight warm-up, shared by concurrent callers.
+  Future<void>? _warmup;
+
+  /// Bumped to cancel the in-flight warm-up between items.
+  int _warmupGeneration = 0;
+
+  /// Generation the in-flight warm-up was started with.
+  int _warmupRunGeneration = 0;
 
   /// Creates a new instance of [MediaRepositoryImpl].
   MediaRepositoryImpl({
     required this.remoteDataSource,
     required this.localDataSource,
     required this.cache,
+    this.warmupPolicy,
     bool autoInit = true,
   }) {
     if (autoInit) {
@@ -55,11 +73,46 @@ class MediaRepositoryImpl implements MediaRepository {
       }
     }
 
-    // Background cache filling/refreshing.
-    unawaited(_initCache());
+    // Background cache filling/refreshing, throttled and skipped in the
+    // WorkManager isolate.
+    final policy = warmupPolicy;
+    if (policy == null || policy.shouldRunAutomatically()) {
+      unawaited(
+        _runWarmup().then((completed) async {
+          if (completed) await policy?.markCompleted();
+        }),
+      );
+    } else {
+      debugPrint('[Repo] Skipping automatic cache warm-up (throttled).');
+    }
   }
 
-  Future<void> _initCache() async {
+  /// Stops the in-flight cache warm-up after the current item.
+  void cancelCacheWarmup() => _warmupGeneration++;
+
+  /// Runs [_initCache] once at a time; returns whether this call started a
+  /// run that reached the end. Joins a live run; waits out a cancelled one
+  /// and starts afresh.
+  Future<bool> _runWarmup() async {
+    final running = _warmup;
+    if (running != null) {
+      final cancelled = _warmupRunGeneration != _warmupGeneration;
+      await running;
+      return cancelled ? _runWarmup() : false;
+    }
+    final generation = _warmupRunGeneration = _warmupGeneration;
+    final future = _initCache(generation);
+    _warmup = future;
+    try {
+      return await future;
+    } finally {
+      _warmup = null;
+    }
+  }
+
+  /// Fills/refreshes the cache. Returns false if cancelled or failed.
+  Future<bool> _initCache(int generation) async {
+    bool cancelled() => generation != _warmupGeneration;
     try {
       debugPrint('[Repo] Starting background _initCache...');
       // 1. Populate/Refresh cache with items from all lists
@@ -69,6 +122,7 @@ class MediaRepositoryImpl implements MediaRepository {
       for (final listName in allListNames) {
         final items = await localDataSource.getListItems(listName);
         for (final item in items) {
+          if (cancelled()) return false;
           final type = item.type == 'movie' ? MediaType.movie : MediaType.tv;
           keysToKeep.add('${type.name}:${item.id}');
 
@@ -76,6 +130,7 @@ class MediaRepositoryImpl implements MediaRepository {
             final details = await getMediaDetails(item.id, type: type);
             if (type == MediaType.tv && details.item.seasons != null) {
               for (final season in details.item.seasons!) {
+                if (cancelled()) return false;
                 await getSeasonDetails(item.id, season.seasonNumber);
               }
             }
@@ -88,6 +143,7 @@ class MediaRepositoryImpl implements MediaRepository {
       final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
 
       for (final seen in seenItems) {
+        if (cancelled()) return false;
         final type = seen.type == 'movie' ? MediaType.movie : MediaType.tv;
         final isRecent = seen.seenDate.isAfter(thirtyDaysAgo);
         final isMissingPoster = seen.posterPath == null;
@@ -113,6 +169,7 @@ class MediaRepositoryImpl implements MediaRepository {
       // 3. Liked items
       final likedItems = await localDataSource.getLikedItems();
       for (final liked in likedItems) {
+        if (cancelled()) return false;
         keysToKeep.add('${liked.type}:${liked.tmdbId}');
         final type = liked.type == 'movie' ? MediaType.movie : MediaType.tv;
         try {
@@ -121,7 +178,9 @@ class MediaRepositoryImpl implements MediaRepository {
       }
 
       // 4. Refresh notification dates from network in the background
+      if (cancelled()) return false;
       await refreshNotifiedItems();
+      if (cancelled()) return false;
 
       // 5. Perform cleanup
       await cache.cleanup(
@@ -129,9 +188,30 @@ class MediaRepositoryImpl implements MediaRepository {
         olderThan: const Duration(days: 60),
       );
       debugPrint('[Repo] Background _initCache completed.');
+      return true;
     } catch (e) {
       debugPrint('[Repo] Background _initCache error: $e');
+      return false;
     }
+  }
+
+  /// Replaces search/discover rows by their full `/movie|tv/{id}` item
+  /// (runtime, seasons, genres). Cached details are used first; misses are
+  /// fetched with at most [enrichmentConcurrency] requests in flight, and a
+  /// failed fetch keeps the original row.
+  Future<List<MediaItem>> _enrichItems(List<MediaItem> items) {
+    return mapWithConcurrency(items, enrichmentConcurrency, (item) async {
+      final cached = cache.getDetails(item.id, item.mediaType)?.item;
+      if (cached != null) return cached;
+      try {
+        return await remoteDataSource.getMediaItem(
+          item.id,
+          type: item.mediaType,
+        );
+      } catch (_) {
+        return item;
+      }
+    });
   }
 
   Future<void> _ensureInitialized() async {
@@ -162,8 +242,9 @@ class MediaRepositoryImpl implements MediaRepository {
       language: language,
       type: type,
     );
-    await _cacheItemsBestEffort(results, 'searchMedia');
-    return results;
+    final enriched = await _enrichItems(results);
+    await _cacheItemsBestEffort(enriched, 'searchMedia');
+    return enriched;
   }
 
   @override
@@ -186,8 +267,9 @@ class MediaRepositoryImpl implements MediaRepository {
       type: type,
       sortBy: sortBy,
     );
-    await _cacheItemsBestEffort(results, 'discoverMedia');
-    return results;
+    final enriched = await _enrichItems(results);
+    await _cacheItemsBestEffort(enriched, 'discoverMedia');
+    return enriched;
   }
 
   /// Caching is an optimisation: a cache failure must not hide fetched results.
@@ -300,7 +382,10 @@ class MediaRepositoryImpl implements MediaRepository {
       return _refreshMovieNotificationDate(item);
     }
 
-    final seen = await localDataSource.getSeenStatus(item.id, MediaType.tv.name);
+    final seen = await localDataSource.getSeenStatus(
+      item.id,
+      MediaType.tv.name,
+    );
     final tail = findLatestTail(seen);
 
     // No watch history yet: fall back to TMDB's next-episode metadata.
@@ -1073,16 +1158,18 @@ class MediaRepositoryImpl implements MediaRepository {
   Future<void> clearCache({required bool complete}) async {
     await _ensureInitialized();
     if (complete) {
+      // Otherwise the warm-up would refill what is being cleared.
+      cancelCacheWarmup();
       await cache.clearAll();
     } else {
-      await _initCache();
+      await _runWarmup();
     }
   }
 
   @override
   Future<void> fillCache() async {
     await _ensureInitialized();
-    await _initCache();
+    await _runWarmup();
   }
 
   /// Fills missing runtime/genres from TMDB. Network only: writes nothing, so
@@ -1093,6 +1180,27 @@ class MediaRepositoryImpl implements MediaRepository {
   }) async {
     final List<SeenItemModel> items = [];
     final total = data.length;
+
+    // One lookup per show/season for the whole import, failures included:
+    // a CSV of N episodes of one show must not trigger N network attempts.
+    final Map<String, Future<MediaDetails?>> detailsByKey = {};
+    final Map<String, Future<Map<String, dynamic>?>> seasonsByKey = {};
+    Future<MediaDetails?> detailsOnce(int id, MediaType type) =>
+        detailsByKey.putIfAbsent(
+          '${type.name}:$id',
+          () => getMediaDetails(
+            id,
+            type: type,
+          ).then<MediaDetails?>((d) => d, onError: (_) => null),
+        );
+    Future<Map<String, dynamic>?> seasonOnce(int id, int season) =>
+        seasonsByKey.putIfAbsent(
+          '$id:$season',
+          () => getSeasonDetails(
+            id,
+            season,
+          ).then<Map<String, dynamic>?>((d) => d, onError: (_) => null),
+        );
 
     for (int i = 0; i < total; i++) {
       final model = data[i];
@@ -1111,13 +1219,15 @@ class MediaRepositoryImpl implements MediaRepository {
 
       if (runtime == null || genres == null) {
         try {
-          final details = await getMediaDetails(tmdbId, type: type);
-          genres ??= details.item.genres;
+          final details = await detailsOnce(tmdbId, type);
+          genres ??= details?.item.genres;
           if (type == MediaType.movie) {
-            runtime = details.item.runtime;
-          } else if (seasonNumber != null && episodeNumber != null) {
-            final seasonDetails = await getSeasonDetails(tmdbId, seasonNumber);
-            final episodes = seasonDetails['episodes'] as List?;
+            if (details != null) runtime = details.item.runtime;
+          } else if (details != null &&
+              seasonNumber != null &&
+              episodeNumber != null) {
+            final seasonDetails = await seasonOnce(tmdbId, seasonNumber);
+            final episodes = seasonDetails?['episodes'] as List?;
             final episode = episodes?.firstWhere(
               (e) => e['episode_number'] == episodeNumber,
               orElse: () => null,

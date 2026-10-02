@@ -30,6 +30,7 @@ import '../../features/search/data/repositories/media_repository_impl.dart'
     as _i922;
 import '../../features/search/domain/repositories/media_repository.dart'
     as _i386;
+import '../cache/cache_warmup_policy.dart' as _i356;
 import '../cache/media_cache.dart' as _i384;
 import '../database/app_database.dart' as _i982;
 import '../security/tmdb_credential_store.dart' as _i1033;
@@ -57,6 +58,9 @@ Future<_i174.GetIt> init(
   gh.singleton<_i361.Dio>(() => registerModule.dio);
   gh.singleton<bool>(() => registerModule.autoInit);
   gh.singleton<_i558.FlutterSecureStorage>(() => registerModule.secureStorage);
+  gh.lazySingleton<_i356.CacheWarmupPolicy>(
+    () => _i356.CacheWarmupPolicy(gh<_i460.SharedPreferences>()),
+  );
   gh.lazySingleton<_i384.MediaCache>(() => _i384.MediaCache(gh<_i214.Isar>()));
   gh.lazySingleton<_i801.MediaListLocalDataSource>(
     () => _i801.MediaListLocalDataSource(gh<_i214.Isar>()),
@@ -92,6 +96,7 @@ Future<_i174.GetIt> init(
       remoteDataSource: gh<_i763.MediaRemoteDataSource>(),
       localDataSource: gh<_i801.MediaListLocalDataSource>(),
       cache: gh<_i384.MediaCache>(),
+      warmupPolicy: gh<_i356.CacheWarmupPolicy>(),
       autoInit: gh<bool>(),
     ),
   );

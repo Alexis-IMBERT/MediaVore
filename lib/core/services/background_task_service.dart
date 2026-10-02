@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:workmanager/workmanager.dart';
+import 'package:mediavore/core/cache/cache_warmup_policy.dart';
 import 'package:mediavore/core/di/injection.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/di/injection.config.dart';
@@ -15,6 +16,10 @@ void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     try {
       debugPrint("Native called background task: $task");
+
+      // The daily sync below refreshes what it needs; skip the full cache
+      // warm-up that MediaRepositoryImpl would otherwise start on creation.
+      CacheWarmupPolicy.isBackgroundIsolate = true;
 
       // Initialize full DI safely so we can use locator<MediaRepository>()
       // It includes opening Isar gracefully.
