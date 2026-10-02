@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
+import 'package:mediavore/core/error/exceptions.dart';
 import 'package:mediavore/features/search/data/datasources/media_remote_data_source.dart';
 import 'package:mocktail/mocktail.dart';
 import '../../../../helpers/mocks.dart';
@@ -174,6 +175,130 @@ void main() {
       expect(result.first['key'], 'xyz');
     });
   });
+
+  group('Error mapping', () {
+    DioException dioError(DioExceptionType type, {int? statusCode}) =>
+        DioException(
+          requestOptions: RequestOptions(path: ''),
+          type: type,
+          response: statusCode == null
+              ? null
+              : Response(
+                  requestOptions: RequestOptions(path: ''),
+                  statusCode: statusCode,
+                ),
+        );
+
+    void stubGetError(Object error) {
+      when(
+        () => mockDio.get(
+          any(),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+        ),
+      ).thenThrow(error);
+    }
+
+    // Every endpoint, so a missing mapping in any of them is caught.
+    final endpoints = <String, Future<Object?> Function(MediaRemoteDataSource)>{
+      'searchMedia': (d) => d.searchMedia('q'),
+      'getMediaItem': (d) => d.getMediaItem(1),
+      'getSeasonDetails': (d) => d.getSeasonDetails(1, 1),
+      'getMediaCredits': (d) => d.getMediaCredits(1),
+      'getActorDetails': (d) => d.getActorDetails(1),
+      'discover': (d) => d.discover(mediaType: 'movie'),
+      'getActorMediaCredits': (d) => d.getActorMediaCredits(1),
+      'getSimilarMedia': (d) => d.getSimilarMedia(1, MediaType.movie),
+      'getCollectionParts': (d) => d.getCollectionParts(1),
+      'getRecommendedMedia': (d) => d.getRecommendedMedia(1, MediaType.movie),
+      'getWatchProviders': (d) => d.getWatchProviders(1, MediaType.movie),
+      'getVideos': (d) => d.getVideos(1, MediaType.movie),
+    };
+
+    for (final entry in endpoints.entries) {
+      group(entry.key, () {
+        for (final type in [
+          DioExceptionType.connectionTimeout,
+          DioExceptionType.sendTimeout,
+          DioExceptionType.receiveTimeout,
+          DioExceptionType.connectionError,
+        ]) {
+          test('should throw NetworkException on $type', () async {
+            stubGetError(dioError(type));
+            await expectLater(
+              entry.value(dataSource),
+              throwsA(isA<NetworkException>()),
+            );
+          });
+        }
+
+        test(
+          'should throw ServerException with status code on bad response',
+          () async {
+            stubGetError(
+              dioError(DioExceptionType.badResponse, statusCode: 404),
+            );
+            await expectLater(
+              entry.value(dataSource),
+              throwsA(
+                isA<ServerException>().having(
+                  (e) => e.statusCode,
+                  'statusCode',
+                  404,
+                ),
+              ),
+            );
+          },
+        );
+
+        test(
+          'should throw ServerException without status code on cancel',
+          () async {
+            stubGetError(dioError(DioExceptionType.cancel));
+            await expectLater(
+              entry.value(dataSource),
+              throwsA(
+                isA<ServerException>().having(
+                  (e) => e.statusCode,
+                  'statusCode',
+                  null,
+                ),
+              ),
+            );
+          },
+        );
+
+        test('should throw ParsingException on malformed payload', () async {
+          when(
+            () => mockDio.get(
+              any(),
+              queryParameters: any(named: 'queryParameters'),
+              options: any(named: 'options'),
+            ),
+          ).thenAnswer(
+            (_) async => Response(
+              requestOptions: RequestOptions(path: ''),
+              data: 'not json',
+              statusCode: 200,
+            ),
+          );
+          await expectLater(
+            entry.value(dataSource),
+            throwsA(isA<ParsingException>()),
+          );
+        });
+
+        test(
+          'should rethrow ConfigurationException when key is missing',
+          () async {
+            when(() => mockPrefs.getString('tmdbApiKey')).thenReturn(null);
+            await expectLater(
+              entry.value(dataSource),
+              throwsA(isA<ConfigurationException>()),
+            );
+          },
+        );
+      });
+    }
+  });
 }
-
-
