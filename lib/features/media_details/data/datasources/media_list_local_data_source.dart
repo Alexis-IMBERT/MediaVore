@@ -21,32 +21,43 @@ class MediaListLocalDataSource {
     required String listName,
     required String title,
   }) async {
-    await _isar.writeTxn(() async {
-      final existing = await _isar.mediaListItems
+    await _isar.writeTxn(
+      () =>
+          _addToListInTxn(id: id, type: type, listName: listName, title: title),
+    );
+  }
+
+  /// Must run inside a write transaction.
+  Future<void> _addToListInTxn({
+    required int id,
+    required String type,
+    required String listName,
+    required String title,
+  }) async {
+    final existing = await _isar.mediaListItems
+        .filter()
+        .idEqualTo(id)
+        .typeEqualTo(type)
+        .listNameEqualTo(listName)
+        .findFirst();
+
+    if (existing == null) {
+      final maxItem = await _isar.mediaListItems
           .filter()
-          .idEqualTo(id)
-          .typeEqualTo(type)
           .listNameEqualTo(listName)
+          .sortByPositionDesc()
           .findFirst();
+      final nextPosition = maxItem != null ? maxItem.position + 1 : 0;
 
-      if (existing == null) {
-        final maxItem = await _isar.mediaListItems
-            .filter()
-            .listNameEqualTo(listName)
-            .sortByPositionDesc()
-            .findFirst();
-        final nextPosition = maxItem != null ? maxItem.position + 1 : 0;
-
-        final item = MediaListItem(
-          id: id,
-          type: type,
-          listName: listName,
-          title: title,
-          position: nextPosition,
-        );
-        await _isar.mediaListItems.put(item);
-      }
-    });
+      final item = MediaListItem(
+        id: id,
+        type: type,
+        listName: listName,
+        title: title,
+        position: nextPosition,
+      );
+      await _isar.mediaListItems.put(item);
+    }
   }
 
   Future<void> removeFromList(int id, String type, String listName) async {
@@ -108,15 +119,18 @@ class MediaListLocalDataSource {
   }
 
   Future<void> createList(String name) async {
-    await _isar.writeTxn(() async {
-      final existing = await _isar.userLists
-          .filter()
-          .nameEqualTo(name)
-          .findFirst();
-      if (existing == null) {
-        await _isar.userLists.put(UserList(name: name));
-      }
-    });
+    await _isar.writeTxn(() => _createListInTxn(name));
+  }
+
+  /// Must run inside a write transaction.
+  Future<void> _createListInTxn(String name) async {
+    final existing = await _isar.userLists
+        .filter()
+        .nameEqualTo(name)
+        .findFirst();
+    if (existing == null) {
+      await _isar.userLists.put(UserList(name: name));
+    }
   }
 
   Future<void> deleteList(String name) async {
@@ -240,35 +254,38 @@ class MediaListLocalDataSource {
     List<SeenItemModel> items, {
     required ImportMode mode,
   }) async {
+    await _isar.writeTxn(() => _importSeenInTxn(items, mode));
+  }
+
+  /// Must run inside a write transaction.
+  Future<void> _importSeenInTxn(
+    List<SeenItemModel> items,
+    ImportMode mode,
+  ) async {
     if (mode == ImportMode.replace) {
-      await _isar.writeTxn(() async {
-        await _isar.seenItemModels.clear();
-      });
+      await _isar.seenItemModels.clear();
     }
+    if (mode == ImportMode.replace || mode == ImportMode.append) {
+      await _isar.seenItemModels.putAll(items);
+    } else if (mode == ImportMode.merge) {
+      for (final item in items) {
+        final existing = await _isar.seenItemModels
+            .filter()
+            .tmdbIdEqualTo(item.tmdbId)
+            .typeEqualTo(item.type)
+            .seasonNumberEqualTo(item.seasonNumber)
+            .episodeNumberEqualTo(item.episodeNumber)
+            .seenDateBetween(
+              item.seenDate.subtract(const Duration(seconds: 1)),
+              item.seenDate.add(const Duration(seconds: 1)),
+            )
+            .findFirst();
 
-    await _isar.writeTxn(() async {
-      if (mode == ImportMode.replace || mode == ImportMode.append) {
-        await _isar.seenItemModels.putAll(items);
-      } else if (mode == ImportMode.merge) {
-        for (final item in items) {
-          final existing = await _isar.seenItemModels
-              .filter()
-              .tmdbIdEqualTo(item.tmdbId)
-              .typeEqualTo(item.type)
-              .seasonNumberEqualTo(item.seasonNumber)
-              .episodeNumberEqualTo(item.episodeNumber)
-              .seenDateBetween(
-                item.seenDate.subtract(const Duration(seconds: 1)),
-                item.seenDate.add(const Duration(seconds: 1)),
-              )
-              .findFirst();
-
-          if (existing == null) {
-            await _isar.seenItemModels.put(item);
-          }
+        if (existing == null) {
+          await _isar.seenItemModels.put(item);
         }
       }
-    });
+    }
   }
 
   Future<int> getSeenDbSize() async {
@@ -679,37 +696,34 @@ class MediaListLocalDataSource {
     required ImportMode mode,
     Function(double progress, String status)? onProgress,
   }) async {
-    final total = items.length;
+    await _isar.writeTxn(() => _importLikedInTxn(items, mode, onProgress));
+  }
 
+  /// Must run inside a write transaction.
+  Future<void> _importLikedInTxn(
+    List<LikedItem> items,
+    ImportMode mode,
+    Function(double progress, String status)? onProgress,
+  ) async {
     if (mode == ImportMode.replace) {
-      await _isar.writeTxn(() async {
-        await _isar.likedItems.clear();
-      });
+      await _isar.likedItems.clear();
     }
-
     if (mode == ImportMode.replace || mode == ImportMode.append) {
       for (int i = 0; i < items.length; i++) {
-        if (onProgress != null) onProgress(i / total, 'Importing likes...');
+        onProgress?.call(i / items.length, 'Importing likes...');
       }
-
-      await _isar.writeTxn(() async {
-        await _isar.likedItems.putAll(items);
-      });
+      await _isar.likedItems.putAll(items);
     } else if (mode == ImportMode.merge) {
       for (int i = 0; i < items.length; i++) {
         final item = items[i];
-        if (onProgress != null) {
-          onProgress(i / total, 'Processing like ${i + 1}');
-        }
+        onProgress?.call(i / items.length, 'Processing like ${i + 1}');
         final existing = await _isar.likedItems
             .filter()
             .tmdbIdEqualTo(item.tmdbId)
             .typeEqualTo(item.type)
             .findFirst();
         if (existing == null) {
-          await _isar.writeTxn(() async {
-            await _isar.likedItems.put(item);
-          });
+          await _isar.likedItems.put(item);
         }
       }
     }
@@ -720,39 +734,34 @@ class MediaListLocalDataSource {
     required ImportMode mode,
     Function(double progress, String status)? onProgress,
   }) async {
-    final total = items.length;
+    await _isar.writeTxn(() => _importNotifiedInTxn(items, mode, onProgress));
+  }
 
+  /// Must run inside a write transaction.
+  Future<void> _importNotifiedInTxn(
+    List<NotifiedItemModel> items,
+    ImportMode mode,
+    Function(double progress, String status)? onProgress,
+  ) async {
     if (mode == ImportMode.replace) {
-      await _isar.writeTxn(() async {
-        await _isar.notifiedItemModels.clear();
-      });
+      await _isar.notifiedItemModels.clear();
     }
-
     if (mode == ImportMode.replace || mode == ImportMode.append) {
       for (int i = 0; i < items.length; i++) {
-        if (onProgress != null) {
-          onProgress(i / total, 'Importing notifications...');
-        }
+        onProgress?.call(i / items.length, 'Importing notifications...');
       }
-
-      await _isar.writeTxn(() async {
-        await _isar.notifiedItemModels.putAll(items);
-      });
+      await _isar.notifiedItemModels.putAll(items);
     } else if (mode == ImportMode.merge) {
       for (int i = 0; i < items.length; i++) {
         final item = items[i];
-        if (onProgress != null) {
-          onProgress(i / total, 'Processing notification ${i + 1}');
-        }
+        onProgress?.call(i / items.length, 'Processing notification ${i + 1}');
         final existing = await _isar.notifiedItemModels
             .filter()
             .tmdbIdEqualTo(item.tmdbId)
             .typeEqualTo(item.type)
             .findFirst();
         if (existing == null) {
-          await _isar.writeTxn(() async {
-            await _isar.notifiedItemModels.put(item);
-          });
+          await _isar.notifiedItemModels.put(item);
         }
       }
     }
@@ -763,31 +772,30 @@ class MediaListLocalDataSource {
     required ImportMode mode,
     Function(double progress, String status)? onProgress,
   }) async {
-    final total = lists.length;
+    await _isar.writeTxn(() => _importListsInTxn(lists, mode, onProgress));
+  }
 
+  /// Must run inside a write transaction.
+  Future<void> _importListsInTxn(
+    Map<String, List<MediaListItem>> lists,
+    ImportMode mode,
+    Function(double progress, String status)? onProgress,
+  ) async {
     if (mode == ImportMode.replace) {
-      // delete all user-created lists except watchlist
-      await _isar.writeTxn(() async {
-        await _isar.mediaListItems.where().deleteAll();
-        await _isar.userLists.where().deleteAll();
-      });
+      await _isar.mediaListItems.where().deleteAll();
+      await _isar.userLists.where().deleteAll();
     }
 
     int i = 0;
     for (final entry in lists.entries) {
-      if (onProgress != null) onProgress(i / total, 'Importing list ${i + 1}');
-      final name = entry.key;
-      final items = entry.value;
-
-      // ensure list exists
-      await createList(name);
-
-      for (final item in items) {
-        // addToList avoids duplicates
-        await addToList(
+      onProgress?.call(i / lists.length, 'Importing list ${i + 1}');
+      await _createListInTxn(entry.key);
+      for (final item in entry.value) {
+        // _addToListInTxn avoids duplicates
+        await _addToListInTxn(
           id: item.id,
           type: item.type,
-          listName: name,
+          listName: entry.key,
           title: item.title,
         );
       }
@@ -800,28 +808,27 @@ class MediaListLocalDataSource {
     required ImportMode mode,
     Function(double progress, String status)? onProgress,
   }) async {
-    final total = items.length;
+    await _isar.writeTxn(() => _importQuickAddInTxn(items, mode, onProgress));
+  }
 
+  /// Must run inside a write transaction.
+  Future<void> _importQuickAddInTxn(
+    List<QuickAddItemModel> items,
+    ImportMode mode,
+    Function(double progress, String status)? onProgress,
+  ) async {
     if (mode == ImportMode.replace) {
-      await _isar.writeTxn(() async {
-        await _isar.quickAddItemModels.clear();
-      });
+      await _isar.quickAddItemModels.clear();
     }
-
     if (mode == ImportMode.replace || mode == ImportMode.append) {
       for (int i = 0; i < items.length; i++) {
-        if (onProgress != null) onProgress(i / total, 'Importing quick add...');
+        onProgress?.call(i / items.length, 'Importing quick add...');
       }
-
-      await _isar.writeTxn(() async {
-        await _isar.quickAddItemModels.putAll(items);
-      });
+      await _isar.quickAddItemModels.putAll(items);
     } else if (mode == ImportMode.merge) {
       for (int i = 0; i < items.length; i++) {
         final item = items[i];
-        if (onProgress != null) {
-          onProgress(i / total, 'Processing quick add ${i + 1}');
-        }
+        onProgress?.call(i / items.length, 'Processing quick add ${i + 1}');
         final existing = await _isar.quickAddItemModels
             .filter()
             .tmdbIdEqualTo(item.tmdbId)
@@ -829,11 +836,32 @@ class MediaListLocalDataSource {
             .episodeNumberEqualTo(item.episodeNumber)
             .findFirst();
         if (existing == null) {
-          await _isar.writeTxn(() async {
-            await _isar.quickAddItemModels.put(item);
-          });
+          await _isar.quickAddItemModels.put(item);
         }
       }
     }
+  }
+
+  /// Imports every collection in a single write transaction, so a failure at
+  /// any stage rolls back the whole import and leaves the database unchanged.
+  ///
+  /// Empty collections are skipped (they are not cleared in replace mode).
+  Future<void> importAll({
+    required ImportMode mode,
+    List<SeenItemModel> seen = const [],
+    List<LikedItem> likes = const [],
+    List<NotifiedItemModel> notifications = const [],
+    List<QuickAddItemModel> quickAdd = const [],
+    Map<String, List<MediaListItem>> lists = const {},
+  }) async {
+    await _isar.writeTxn(() async {
+      if (seen.isNotEmpty) await _importSeenInTxn(seen, mode);
+      if (likes.isNotEmpty) await _importLikedInTxn(likes, mode, null);
+      if (notifications.isNotEmpty) {
+        await _importNotifiedInTxn(notifications, mode, null);
+      }
+      if (quickAdd.isNotEmpty) await _importQuickAddInTxn(quickAdd, mode, null);
+      if (lists.isNotEmpty) await _importListsInTxn(lists, mode, null);
+    });
   }
 }

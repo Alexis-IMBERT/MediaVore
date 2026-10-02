@@ -1086,13 +1086,12 @@ class MediaRepositoryImpl implements MediaRepository {
     await _initCache();
   }
 
-  Future<void> _importSeenData(
+  /// Fills missing runtime/genres from TMDB. Network only: writes nothing, so
+  /// it can run before the import transaction.
+  Future<List<SeenItemModel>> _enrichSeenData(
     List<SeenItemModel> data, {
-    ImportMode mode = ImportMode.append,
     Function(double progress, String status)? onProgress,
   }) async {
-    await _ensureInitialized();
-
     final List<SeenItemModel> items = [];
     final total = data.length;
 
@@ -1146,10 +1145,7 @@ class MediaRepositoryImpl implements MediaRepository {
       );
     }
 
-    if (onProgress != null) {
-      onProgress(1.0, 'Saving entries...');
-    }
-    await localDataSource.importSeenItems(items, mode: mode);
+    return items;
   }
 
   @override
@@ -1188,83 +1184,23 @@ class MediaRepositoryImpl implements MediaRepository {
     await _ensureInitialized();
     final envelope = ExportEnvelope.fromZipBytes(zipBytes);
 
-    final seenData = envelope.seen;
-    final likesData = envelope.likes;
-    final notData = envelope.notifications;
-    final listsData = envelope.lists;
-    final quickAddData = envelope.quickAdd;
+    // Network enrichment first (no DB writes), then a single transaction for
+    // every collection: a failure at any stage leaves the database unchanged.
+    final seenItems = await _enrichSeenData(
+      envelope.seen,
+      onProgress: (p, s) => onProgress?.call(p * 0.9, s),
+    );
 
-    final totalStages = 5;
-    int stage = 0;
-
-    if (seenData.isNotEmpty) {
-      if (onProgress != null) {
-        onProgress(stage / totalStages, 'Importing seen...');
-      }
-      await _importSeenData(
-        seenData,
-        mode: mode,
-        onProgress: (p, s) {
-          if (onProgress != null) onProgress((stage + p) / totalStages, s);
-        },
-      );
-    }
-    stage++;
-
-    if (likesData.isNotEmpty) {
-      if (onProgress != null) {
-        onProgress(stage / totalStages, 'Importing likes...');
-      }
-      await localDataSource.importLikedItems(
-        likesData,
-        mode: mode,
-        onProgress: (p, s) {
-          if (onProgress != null) onProgress((stage + p) / totalStages, s);
-        },
-      );
-    }
-    stage++;
-
-    if (notData.isNotEmpty) {
-      if (onProgress != null) {
-        onProgress(stage / totalStages, 'Importing notifications...');
-      }
-      await localDataSource.importNotifiedItems(
-        notData,
-        mode: mode,
-        onProgress: (p, s) {
-          if (onProgress != null) onProgress((stage + p) / totalStages, s);
-        },
-      );
-    }
-    stage++;
-
-    if (quickAddData.isNotEmpty) {
-      if (onProgress != null) {
-        onProgress(stage / totalStages, 'Importing quick add...');
-      }
-      await localDataSource.importQuickAddItems(
-        quickAddData,
-        mode: mode,
-        onProgress: (p, s) {
-          if (onProgress != null) onProgress((stage + p) / totalStages, s);
-        },
-      );
-    }
-    stage++;
-
-    if (listsData.isNotEmpty) {
-      if (onProgress != null) {
-        onProgress(stage / totalStages, 'Importing lists...');
-      }
-      await localDataSource.importListsData(
-        listsData,
-        mode: mode,
-        onProgress: (p, s) {
-          if (onProgress != null) onProgress((stage + p) / totalStages, s);
-        },
-      );
-    }
+    onProgress?.call(0.9, 'Saving entries...');
+    await localDataSource.importAll(
+      mode: mode,
+      seen: seenItems,
+      likes: envelope.likes,
+      notifications: envelope.notifications,
+      quickAdd: envelope.quickAdd,
+      lists: envelope.lists,
+    );
+    onProgress?.call(1.0, 'Import complete');
   }
 
   @override
