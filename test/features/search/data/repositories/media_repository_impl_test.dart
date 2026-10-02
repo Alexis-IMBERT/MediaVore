@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mediavore/core/error/exceptions.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/domain/entities/media_details.dart';
 import 'package:mediavore/core/domain/entities/seen_item.dart';
@@ -189,6 +190,60 @@ void main() {
           genreIds: [28],
         ),
       ).called(1);
+    });
+  });
+
+  group('searchMedia / discoverMedia error propagation', () {
+    test('should rethrow ConfigurationException from searchMedia', () async {
+      when(
+        () => mockRemoteDataSource.searchMedia(any(), page: any(named: 'page')),
+      ).thenThrow(const ConfigurationException('missing key'));
+
+      await expectLater(
+        repository.searchMedia('Batman'),
+        throwsA(isA<ConfigurationException>()),
+      );
+    });
+
+    test('should rethrow NetworkException from discoverMedia', () async {
+      when(
+        () => mockRemoteDataSource.discoverMedia(
+          page: any(named: 'page'),
+          type: any(named: 'type'),
+        ),
+      ).thenThrow(const NetworkException('offline'));
+
+      await expectLater(
+        repository.discoverMedia(),
+        throwsA(isA<NetworkException>()),
+      );
+    });
+
+    test('should rethrow ServerException (401) from discoverMedia', () async {
+      when(
+        () => mockRemoteDataSource.discoverMedia(
+          page: any(named: 'page'),
+          type: any(named: 'type'),
+        ),
+      ).thenThrow(const ServerException('unauthorized', 401));
+
+      await expectLater(
+        repository.discoverMedia(),
+        throwsA(
+          isA<ServerException>().having((e) => e.statusCode, 'code', 401),
+        ),
+      );
+    });
+
+    test('should still return results when caching fails', () async {
+      when(
+        () => mockRemoteDataSource.searchMedia(any(), page: any(named: 'page')),
+      ).thenAnswer((_) async => [tMediaItem]);
+      when(() => mockCache.cacheItem(any())).thenThrow(Exception('disk full'));
+
+      final result = await repository.searchMedia('Inception');
+
+      expect(result, equals([tMediaItem]));
     });
   });
 

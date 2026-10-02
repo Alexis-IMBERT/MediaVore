@@ -151,24 +151,19 @@ class MediaRepositoryImpl implements MediaRepository {
     MediaType? type,
   }) async {
     await _ensureInitialized();
-    try {
-      final results = await remoteDataSource.searchMedia(
-        query,
-        page: page,
-        genreIds: genreIds,
-        releaseYear: releaseYear,
-        minRating: minRating,
-        language: language,
-        type: type,
-      );
-      for (final item in results) {
-        await cache.cacheItem(item);
-      }
-      return results;
-    } catch (e) {
-      debugPrint('[Repo] searchMedia error: $e');
-      return [];
-    }
+    // Remote errors (AppException) propagate so the UI can tell "no results"
+    // apart from "offline" / "missing API key" / "server down".
+    final results = await remoteDataSource.searchMedia(
+      query,
+      page: page,
+      genreIds: genreIds,
+      releaseYear: releaseYear,
+      minRating: minRating,
+      language: language,
+      type: type,
+    );
+    await _cacheItemsBestEffort(results, 'searchMedia');
+    return results;
   }
 
   @override
@@ -182,23 +177,27 @@ class MediaRepositoryImpl implements MediaRepository {
     String sortBy = 'popularity.desc',
   }) async {
     await _ensureInitialized();
+    final results = await remoteDataSource.discoverMedia(
+      page: page,
+      genreIds: genreIds,
+      releaseYear: releaseYear,
+      minRating: minRating,
+      language: language,
+      type: type,
+      sortBy: sortBy,
+    );
+    await _cacheItemsBestEffort(results, 'discoverMedia');
+    return results;
+  }
+
+  /// Caching is an optimisation: a cache failure must not hide fetched results.
+  Future<void> _cacheItemsBestEffort(List<MediaItem> items, String from) async {
     try {
-      final results = await remoteDataSource.discoverMedia(
-        page: page,
-        genreIds: genreIds,
-        releaseYear: releaseYear,
-        minRating: minRating,
-        language: language,
-        type: type,
-        sortBy: sortBy,
-      );
-      for (final item in results) {
+      for (final item in items) {
         await cache.cacheItem(item);
       }
-      return results;
     } catch (e) {
-      debugPrint('[Repo] discoverMedia error: $e');
-      return [];
+      debugPrint('[Repo] $from cache error: $e');
     }
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mediavore/core/error/exceptions.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/domain/entities/media_details.dart';
 import 'package:mediavore/core/domain/entities/seen_item.dart';
@@ -210,13 +211,123 @@ void main() {
     test('should set offline to true when network call fails', () async {
       when(
         () => mockRepository.discoverMedia(page: any(named: 'page')),
-      ).thenThrow(Exception('SocketException: Connection failed'));
+      ).thenThrow(const NetworkException('Connection failed'));
 
-      try {
-        await provider.searchMedia('');
-      } catch (_) {}
+      await provider.searchMedia('');
 
       expect(provider.isOffline, isTrue);
+      expect(provider.errorType, SearchErrorType.offline);
+    });
+  });
+
+  group('SearchProvider - Search errors', () {
+    void stubDiscoverThrows(Object error) {
+      when(
+        () => mockRepository.discoverMedia(
+          page: any(named: 'page'),
+          type: any(named: 'type'),
+        ),
+      ).thenThrow(error);
+    }
+
+    test('should classify errors by exception type', () {
+      expect(
+        classifySearchError(const ConfigurationException('x')),
+        SearchErrorType.missingApiKey,
+      );
+      expect(
+        classifySearchError(const NetworkException('x')),
+        SearchErrorType.offline,
+      );
+      expect(
+        classifySearchError(const ServerException('x', 401)),
+        SearchErrorType.invalidApiKey,
+      );
+      expect(
+        classifySearchError(const ServerException('x', 503)),
+        SearchErrorType.server,
+      );
+      expect(
+        classifySearchError(const ParsingException('x')),
+        SearchErrorType.unknown,
+      );
+    });
+
+    test('should expose missingApiKey without flagging offline', () async {
+      stubDiscoverThrows(const ConfigurationException('missing key'));
+
+      await provider.searchMedia('');
+
+      expect(provider.errorType, SearchErrorType.missingApiKey);
+      expect(provider.error, contains('Settings'));
+      expect(provider.isOffline, isFalse);
+      expect(provider.items, isEmpty);
+      expect(provider.isLoading, isFalse);
+    });
+
+    test('should clear the error on a successful retry', () async {
+      stubDiscoverThrows(const ServerException('down', 503));
+      await provider.searchMedia('');
+      expect(provider.errorType, SearchErrorType.server);
+
+      when(
+        () => mockRepository.discoverMedia(
+          page: any(named: 'page'),
+          type: any(named: 'type'),
+        ),
+      ).thenAnswer((_) async => []);
+      await provider.searchMedia('');
+
+      expect(provider.errorType, isNull);
+      expect(provider.error, isNull);
+    });
+
+    test('should not re-fetch next page while it is failing', () async {
+      when(
+        () => mockRepository.searchMedia(
+          any(),
+          page: 1,
+          type: any(named: 'type'),
+        ),
+      ).thenAnswer(
+        (_) async => const [
+          MediaItem(id: 1, title: 'A', overview: '', releaseDate: ''),
+        ],
+      );
+      when(
+        () => mockRepository.searchMedia(
+          any(),
+          page: 2,
+          type: any(named: 'type'),
+        ),
+      ).thenThrow(const NetworkException('offline'));
+
+      await provider.searchMedia('A');
+      await provider.fetchNextPage();
+      expect(provider.errorType, SearchErrorType.offline);
+      expect(provider.items, hasLength(2));
+
+      clearInteractions(mockRepository);
+      await provider.fetchNextPage();
+      verifyNever(
+        () => mockRepository.searchMedia(
+          any(),
+          page: any(named: 'page'),
+          type: any(named: 'type'),
+        ),
+      );
+
+      // Retry issues the request again (the movie call throws first, so the
+      // tv call is never reached).
+      await provider.retryNextPage();
+      verify(
+        () => mockRepository.searchMedia(
+          any(),
+          page: 2,
+          type: any(named: 'type'),
+        ),
+      ).called(1);
+      expect(provider.errorType, SearchErrorType.offline);
     });
   });
 

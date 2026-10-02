@@ -1,4 +1,5 @@
 import 'package:mediavore/core/domain/entities/actor_details.dart';
+import 'package:mediavore/core/error/exceptions.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/domain/entities/media_details.dart';
 import 'package:mediavore/core/domain/entities/seen_item.dart';
@@ -8,6 +9,9 @@ enum ImportMode { append, replace, merge }
 /// Abstract class for a repository that handles media (movies and series) data.
 abstract class MediaRepository {
   /// Searches for media based on a query with optional filters.
+  ///
+  /// Throws an [AppException] (configuration, network, server or parsing
+  /// error) instead of returning an empty list when the request fails.
   Future<List<MediaItem>> searchMedia(
     String query, {
     int page = 1,
@@ -19,6 +23,8 @@ abstract class MediaRepository {
   });
 
   /// Discovers media using TMDb's discovery endpoint.
+  ///
+  /// Throws an [AppException] on failure, like [searchMedia].
   Future<List<MediaItem>> discoverMedia({
     int page = 1,
     List<int>? genreIds,

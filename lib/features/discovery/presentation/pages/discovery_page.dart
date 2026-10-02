@@ -6,6 +6,7 @@ import 'package:mediavore/features/search/presentation/providers/search_provider
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/utils/genres.dart';
 import 'package:mediavore/features/media_details/presentation/pages/media_detail_page.dart';
+import 'package:mediavore/features/settings/presentation/pages/settings_page.dart';
 import 'package:mediavore/features/settings/presentation/providers/settings_provider.dart';
 import 'package:mediavore/core/theme/app_palette.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -344,6 +345,72 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
     );
   }
 
+  /// Full-page state shown when the first page failed to load.
+  Widget _buildErrorState(SearchProvider provider) {
+    final errorType = provider.errorType!;
+    final needsApiKey =
+        errorType == SearchErrorType.missingApiKey ||
+        errorType == SearchErrorType.invalidApiKey;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(switch (errorType) {
+              SearchErrorType.missingApiKey ||
+              SearchErrorType.invalidApiKey => Icons.key_off,
+              SearchErrorType.offline => Icons.wifi_off,
+              SearchErrorType.server ||
+              SearchErrorType.unknown => Icons.cloud_off,
+            }, size: 48),
+            const SizedBox(height: 16),
+            Text(searchErrorMessage(errorType), textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            if (needsApiKey)
+              ElevatedButton.icon(
+                key: const Key('discovery_open_settings'),
+                icon: const Icon(Icons.settings),
+                label: const Text('Open Settings'),
+                onPressed: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const SettingsPage(),
+                    ),
+                  );
+                  if (mounted) _refreshDiscovery();
+                },
+              )
+            else
+              ElevatedButton.icon(
+                key: const Key('discovery_retry'),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+                onPressed: () => _refreshDiscovery(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Trailing list/grid cell: spinner while loading the next page, or a
+  /// retry button when that load failed.
+  Widget _buildListFooter(SearchProvider provider) {
+    if (provider.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return Center(
+      child: TextButton.icon(
+        key: const Key('discovery_retry_next_page'),
+        icon: const Icon(Icons.refresh),
+        label: const Text('Retry'),
+        onPressed: provider.retryNextPage,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = Provider.of<SettingsProvider>(context);
@@ -399,6 +466,10 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
             return const Center(child: CircularProgressIndicator());
           }
 
+          if (items.isEmpty && provider.errorType != null) {
+            return _buildErrorState(provider);
+          }
+
           if (items.isEmpty) {
             return Center(
               child: Column(
@@ -419,16 +490,18 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
             );
           }
 
+          final hasFooter = provider.isLoading || provider.errorType != null;
+
           return RefreshIndicator(
             onRefresh: () async => _refreshDiscovery(),
             child: settings.displayMode == DisplayMode.list
                 ? ListView.builder(
                     controller: _scrollController,
                     padding: const EdgeInsets.all(8),
-                    itemCount: items.length + (provider.isLoading ? 1 : 0),
+                    itemCount: items.length + (hasFooter ? 1 : 0),
                     itemBuilder: (context, index) {
                       if (index == items.length) {
-                        return const Center(child: CircularProgressIndicator());
+                        return _buildListFooter(provider);
                       }
 
                       final item = items[index];
@@ -580,10 +653,10 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
                       crossAxisSpacing: 8,
                       mainAxisSpacing: 8,
                     ),
-                    itemCount: items.length + (provider.isLoading ? 1 : 0),
+                    itemCount: items.length + (hasFooter ? 1 : 0),
                     itemBuilder: (context, index) {
                       if (index == items.length) {
-                        return const Center(child: CircularProgressIndicator());
+                        return _buildListFooter(provider);
                       }
 
                       final item = items[index];
