@@ -57,7 +57,7 @@ void main() {
       () => mockRepository.markAsSeen(any()),
     ).thenAnswer((_) async => Future.value());
 
-    settingsProvider = SettingsProvider(MockSharedPreferences());
+    settingsProvider = SettingsProvider(MockSharedPreferences(), FakeTmdbCredentialStore());
     provider = SearchProvider(mockRepository);
     when(
       () => mockRepository.getSeenStatus(any(), any()),

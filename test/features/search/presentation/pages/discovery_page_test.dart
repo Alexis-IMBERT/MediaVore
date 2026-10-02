@@ -84,7 +84,7 @@ void main() {
     ).thenAnswer((_) async => []);
 
     searchProvider = SearchProvider(mockMediaRepository);
-    settingsProvider = SettingsProvider(mockSharedPreferences);
+    settingsProvider = SettingsProvider(mockSharedPreferences, FakeTmdbCredentialStore());
       });
 
   Widget createWidgetUnderTest() {

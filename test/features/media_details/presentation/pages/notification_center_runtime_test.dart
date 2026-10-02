@@ -51,7 +51,7 @@ void main() {
         .thenAnswer((_) async => Future.value());
 
     provider = SearchProvider(mockRepository);
-    settingsProvider = SettingsProvider(MockSharedPreferences());
+    settingsProvider = SettingsProvider(MockSharedPreferences(), FakeTmdbCredentialStore());
   });
 
   testWidgets(

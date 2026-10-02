@@ -10,6 +10,7 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:dio/dio.dart' as _i361;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart' as _i558;
 import 'package:get_it/get_it.dart' as _i174;
 import 'package:injectable/injectable.dart' as _i526;
 import 'package:isar_community/isar.dart' as _i214;
@@ -31,6 +32,7 @@ import '../../features/search/domain/repositories/media_repository.dart'
     as _i386;
 import '../cache/media_cache.dart' as _i384;
 import '../database/app_database.dart' as _i982;
+import '../security/tmdb_credential_store.dart' as _i1033;
 import 'asset_definitions_loader.dart' as _i719;
 import 'definitions_loader.dart' as _i216;
 import 'injection.dart' as _i464;
@@ -54,6 +56,7 @@ Future<_i174.GetIt> init(
   );
   gh.singleton<_i361.Dio>(() => registerModule.dio);
   gh.singleton<bool>(() => registerModule.autoInit);
+  gh.singleton<_i558.FlutterSecureStorage>(() => registerModule.secureStorage);
   gh.lazySingleton<_i384.MediaCache>(() => _i384.MediaCache(gh<_i214.Isar>()));
   gh.lazySingleton<_i801.MediaListLocalDataSource>(
     () => _i801.MediaListLocalDataSource(gh<_i214.Isar>()),
@@ -61,11 +64,12 @@ Future<_i174.GetIt> init(
   gh.lazySingleton<_i216.DefinitionsLoader>(
     () => _i719.AssetDefinitionsLoader(),
   );
-  gh.lazySingleton<_i763.MediaRemoteDataSource>(
-    () => _i763.MediaRemoteDataSource(
-      dio: gh<_i361.Dio>(),
-      prefs: gh<_i460.SharedPreferences>(),
+  await gh.singletonAsync<_i1033.TmdbCredentialStore>(
+    () => registerModule.tmdbCredentialStore(
+      gh<_i558.FlutterSecureStorage>(),
+      gh<_i460.SharedPreferences>(),
     ),
+    preResolve: true,
   );
   gh.lazySingleton<_i282.AchievementRepository>(
     () => _i445.AchievementRepositoryImpl(
@@ -76,6 +80,12 @@ Future<_i174.GetIt> init(
   );
   gh.lazySingleton<_i393.AchievementProvider>(
     () => _i393.AchievementProvider(gh<_i282.AchievementRepository>()),
+  );
+  gh.lazySingleton<_i763.MediaRemoteDataSource>(
+    () => _i763.MediaRemoteDataSource(
+      dio: gh<_i361.Dio>(),
+      credentials: gh<_i1033.TmdbCredentialStore>(),
+    ),
   );
   gh.lazySingleton<_i386.MediaRepository>(
     () => _i922.MediaRepositoryImpl(

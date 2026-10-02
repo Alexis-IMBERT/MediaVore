@@ -1,19 +1,19 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:injectable/injectable.dart';
 import 'package:mediavore/core/domain/entities/actor_details.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/error/exceptions.dart';
+import 'package:mediavore/core/security/tmdb_credential_store.dart';
 
 /// Handles data fetching from the TMDB API.
 @lazySingleton
 class MediaRemoteDataSource {
   final Dio dio;
-  final SharedPreferences prefs;
+  final TmdbCredentialStore credentials;
 
   String get _apiCredential {
-    final raw = (prefs.getString('tmdbApiKey') ?? '').trim();
+    final raw = credentials.credential.trim();
     if (raw.toLowerCase().startsWith('bearer ')) {
       return raw.substring(7).trim();
     }
@@ -54,17 +54,23 @@ class MediaRemoteDataSource {
 
   /// Creates a new instance of [MediaRemoteDataSource].
   ///
-  /// Requires a [Dio] to make network requests and [SharedPreferences]
-  /// that stores the TMDB credential under 'tmdbApiKey'.
+  /// Requires a [Dio] to make network requests and a [TmdbCredentialStore]
+  /// holding the TMDB credential.
   @factoryMethod
-  factory MediaRemoteDataSource({required Dio dio, required SharedPreferences prefs}) {
+  factory MediaRemoteDataSource({
+    required Dio dio,
+    required TmdbCredentialStore credentials,
+  }) {
     return MediaRemoteDataSource._internal(
       dio: dio,
-      prefs: prefs,
+      credentials: credentials,
     );
   }
 
-  MediaRemoteDataSource._internal({required this.dio, required this.prefs});
+  MediaRemoteDataSource._internal({
+    required this.dio,
+    required this.credentials,
+  });
 
   /// Searches for movies and series on the TMDB API, supporting optional filters.
   Future<List<MediaItem>> searchMedia(

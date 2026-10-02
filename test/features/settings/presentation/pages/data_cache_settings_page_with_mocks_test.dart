@@ -151,7 +151,7 @@ void main() {
       () => mockAchievementProvider.clearAchievements(),
     ).thenAnswer((_) async {});
 
-    final settingsProvider = SettingsProvider(MockSharedPreferences());
+    final settingsProvider = SettingsProvider(MockSharedPreferences(), FakeTmdbCredentialStore());
 
     final mockFilePicker = FakeFilePicker();    mockFilePicker.onPick =
         ({
