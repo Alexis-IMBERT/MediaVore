@@ -61,16 +61,53 @@ class MediaRemoteDataSource {
     required Dio dio,
     required TmdbCredentialStore credentials,
   }) {
-    return MediaRemoteDataSource._internal(
-      dio: dio,
-      credentials: credentials,
-    );
+    return MediaRemoteDataSource._internal(dio: dio, credentials: credentials);
   }
 
   MediaRemoteDataSource._internal({
     required this.dio,
     required this.credentials,
   });
+
+  /// Maps a [DioException] to the matching [AppException].
+  ///
+  /// Timeouts and connection failures become [NetworkException]; HTTP error
+  /// responses become [ServerException] with the status code; anything else
+  /// (cancel, bad certificate, unknown) becomes [ServerException] without one.
+  @visibleForTesting
+  static AppException mapDioException(DioException e, String action) {
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.connectionError:
+        return NetworkException('Network error while $action', e);
+      case DioExceptionType.badResponse:
+        return ServerException(
+          'Server error while $action',
+          e.response?.statusCode,
+          e,
+        );
+      default:
+        return ServerException('Request failed while $action', null, e);
+    }
+  }
+
+  /// Runs [request] and normalizes failures into [AppException]s.
+  ///
+  /// [DioException]s go through [mapDioException]; [AppException]s are
+  /// rethrown unchanged; any other error is a [ParsingException].
+  Future<T> _guard<T>(String action, Future<T> Function() request) async {
+    try {
+      return await request();
+    } on DioException catch (e) {
+      throw mapDioException(e, action);
+    } on AppException {
+      rethrow;
+    } catch (e) {
+      throw ParsingException('Failed to parse response while $action', e);
+    }
+  }
 
   /// Searches for movies and series on the TMDB API, supporting optional filters.
   Future<List<MediaItem>> searchMedia(
@@ -81,9 +118,9 @@ class MediaRemoteDataSource {
     double? minRating,
     String? language,
     MediaType? type,
-  }) async {
+  }) {
     final path = (type == MediaType.tv) ? 'tv' : 'movie';
-    try {
+    return _guard('searching', () async {
       final params = <String, dynamic>{'query': query, 'page': page};
       if (genreIds != null && genreIds.isNotEmpty) {
         params['with_genres'] = genreIds.join(',');
@@ -123,144 +160,52 @@ class MediaRemoteDataSource {
       );
 
       return enrichedItems;
-    } on DioException catch (e) {
-      switch (e.type) {
-        case DioExceptionType.connectionTimeout:
-        case DioExceptionType.sendTimeout:
-        case DioExceptionType.receiveTimeout:
-        case DioExceptionType.connectionError:
-          throw NetworkException('Network error while searching', e);
-        case DioExceptionType.badResponse:
-          throw ServerException(
-            'Server error while searching',
-            e.response?.statusCode,
-            e,
-          );
-        default:
-          throw ServerException('Failed to load results', null, e);
-      }
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to parse search response', e);
-    }
+    });
   }
 
   /// Fetches the details for a single media item from the TMDB API.
-  Future<MediaItem> getMediaItem(
-    int id, {
-    MediaType type = MediaType.movie,
-  }) async {
+  Future<MediaItem> getMediaItem(int id, {MediaType type = MediaType.movie}) {
     final path = type == MediaType.tv ? 'tv' : 'movie';
-    try {
+    return _guard('fetching details', () async {
       final response = await _tmdbGet('https://api.themoviedb.org/3/$path/$id');
       final data = Map<String, dynamic>.from(response.data);
       data['media_type'] = path;
       return MediaItem.fromJson(data);
-    } on DioException catch (e) {
-      switch (e.type) {
-        case DioExceptionType.connectionTimeout:
-        case DioExceptionType.sendTimeout:
-        case DioExceptionType.receiveTimeout:
-        case DioExceptionType.connectionError:
-          throw NetworkException('Network error while fetching details', e);
-        case DioExceptionType.badResponse:
-          throw ServerException(
-            'Server error while fetching details',
-            e.response?.statusCode,
-            e,
-          );
-        default:
-          throw ServerException('Failed to load details', null, e);
-      }
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to parse response', e);
-    }
+    });
   }
 
   /// Fetches the details for a TV season from the TMDB API.
-  Future<Map<String, dynamic>> getSeasonDetails(
-    int tvId,
-    int seasonNumber,
-  ) async {
-    try {
+  Future<Map<String, dynamic>> getSeasonDetails(int tvId, int seasonNumber) {
+    return _guard('fetching season details', () async {
       final response = await _tmdbGet(
         'https://api.themoviedb.org/3/tv/$tvId/season/$seasonNumber',
       );
-      return response.data;
-    } on DioException catch (e) {
-      throw ServerException(
-        'Failed to load season details',
-        e.response?.statusCode,
-        e,
-      );
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to parse season details', e);
-    }
+      return response.data as Map<String, dynamic>;
+    });
   }
 
   /// Fetches the credits for a single media item from the TMDB API.
   Future<Map<String, dynamic>> getMediaCredits(
     int id, {
     MediaType type = MediaType.movie,
-  }) async {
+  }) {
     final path = type == MediaType.tv ? 'tv' : 'movie';
-    try {
+    return _guard('fetching credits', () async {
       final response = await _tmdbGet(
         'https://api.themoviedb.org/3/$path/$id/credits',
       );
-      return response.data;
-    } on DioException catch (e) {
-      switch (e.type) {
-        case DioExceptionType.connectionTimeout:
-        case DioExceptionType.sendTimeout:
-        case DioExceptionType.receiveTimeout:
-        case DioExceptionType.connectionError:
-          throw NetworkException('Network error while fetching credits', e);
-        case DioExceptionType.badResponse:
-          throw ServerException(
-            'Server error while fetching credits',
-            e.response?.statusCode,
-            e,
-          );
-        default:
-          throw ServerException('Failed to load credits', null, e);
-      }
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to parse credits response', e);
-    }
+      return response.data as Map<String, dynamic>;
+    });
   }
 
   /// Fetches the details for an actor from the TMDB API.
-  Future<ActorDetails> getActorDetails(int actorId) async {
-    try {
-      final response = await _tmdbGet('https://api.themoviedb.org/3/person/$actorId');
+  Future<ActorDetails> getActorDetails(int actorId) {
+    return _guard('fetching actor details', () async {
+      final response = await _tmdbGet(
+        'https://api.themoviedb.org/3/person/$actorId',
+      );
       return ActorDetails.fromJson(response.data);
-    } on DioException catch (e) {
-      switch (e.type) {
-        case DioExceptionType.connectionTimeout:
-        case DioExceptionType.sendTimeout:
-        case DioExceptionType.receiveTimeout:
-        case DioExceptionType.connectionError:
-          throw NetworkException(
-            'Network error while fetching actor details',
-            e,
-          );
-        case DioExceptionType.badResponse:
-          throw ServerException(
-            'Server error while fetching actor details',
-            e.response?.statusCode,
-            e,
-          );
-        default:
-          throw ServerException('Failed to load actor details', null, e);
-      }
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to parse actor details response', e);
-    }
+    });
   }
 
   /// Discover movies or TV using TMDb discover endpoint.
@@ -273,9 +218,9 @@ class MediaRemoteDataSource {
     String? withGenres,
     double? minRating,
     String? language,
-  }) async {
+  }) {
     final path = mediaType == 'tv' ? 'tv' : 'movie';
-    try {
+    return _guard('discovering', () async {
       final params = <String, dynamic>{'page': page};
       if (sortBy != null) params['sort_by'] = sortBy;
       if (year != null) {
@@ -319,59 +264,18 @@ class MediaRemoteDataSource {
       );
 
       return enriched;
-    } on DioException catch (e) {
-      switch (e.type) {
-        case DioExceptionType.connectionTimeout:
-        case DioExceptionType.sendTimeout:
-        case DioExceptionType.receiveTimeout:
-        case DioExceptionType.connectionError:
-          throw NetworkException('Network error while discovering', e);
-        case DioExceptionType.badResponse:
-          throw ServerException(
-            'Server error while discovering',
-            e.response?.statusCode,
-            e,
-          );
-        default:
-          throw ServerException('Failed to discover', null, e);
-      }
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to parse discover response', e);
-    }
+    });
   }
 
   /// Fetches the movies an actor has been in.
-  Future<List<MediaItem>> getActorMediaCredits(int actorId) async {
-    try {
+  Future<List<MediaItem>> getActorMediaCredits(int actorId) {
+    return _guard('fetching actor movie credits', () async {
       final response = await _tmdbGet(
         'https://api.themoviedb.org/3/person/$actorId/combined_credits',
       );
       final List results = response.data['cast'];
       return results.map((m) => MediaItem.fromJson(m)).toList();
-    } on DioException catch (e) {
-      switch (e.type) {
-        case DioExceptionType.connectionTimeout:
-        case DioExceptionType.sendTimeout:
-        case DioExceptionType.receiveTimeout:
-        case DioExceptionType.connectionError:
-          throw NetworkException(
-            'Network error while fetching actor movie credits',
-            e,
-          );
-        case DioExceptionType.badResponse:
-          throw ServerException(
-            'Server error while fetching actor movie credits',
-            e.response?.statusCode,
-            e,
-          );
-        default:
-          throw ServerException('Failed to load actor movie credits', null, e);
-      }
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to parse actor movie credits response', e);
-    }
+    });
   }
 
   /// Backwards-compatible wrapper for discover with filter naming used elsewhere.
@@ -398,25 +302,24 @@ class MediaRemoteDataSource {
     );
   }
 
-  Future<List<MediaItem>> getSimilarMedia(int id, MediaType type) async {
+  Future<List<MediaItem>> getSimilarMedia(int id, MediaType type) {
     final path = type == MediaType.tv ? 'tv' : 'movie';
-    try {
-      final response = await _tmdbGet('https://api.themoviedb.org/3/$path/$id/similar');
+    return _guard('fetching similar media', () async {
+      final response = await _tmdbGet(
+        'https://api.themoviedb.org/3/$path/$id/similar',
+      );
       final List results = response.data['results'];
       return results.map((m) {
         final data = Map<String, dynamic>.from(m);
         if (data['media_type'] == null) data['media_type'] = path;
         return MediaItem.fromJson(data);
       }).toList();
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to fetch similar media', e);
-    }
+    });
   }
 
   /// Fetches the parts of a collection (saga) by collection id.
-  Future<List<MediaItem>> getCollectionParts(int collectionId) async {
-    try {
+  Future<List<MediaItem>> getCollectionParts(int collectionId) {
+    return _guard('fetching collection parts', () async {
       final response = await _tmdbGet(
         'https://api.themoviedb.org/3/collection/$collectionId',
       );
@@ -426,15 +329,12 @@ class MediaRemoteDataSource {
         if (data['media_type'] == null) data['media_type'] = 'movie';
         return MediaItem.fromJson(data);
       }).toList();
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to fetch collection parts', e);
-    }
+    });
   }
 
-  Future<List<MediaItem>> getRecommendedMedia(int id, MediaType type) async {
+  Future<List<MediaItem>> getRecommendedMedia(int id, MediaType type) {
     final path = type == MediaType.tv ? 'tv' : 'movie';
-    try {
+    return _guard('fetching recommendations', () async {
       final response = await _tmdbGet(
         'https://api.themoviedb.org/3/$path/$id/recommendations',
       );
@@ -444,34 +344,27 @@ class MediaRemoteDataSource {
         if (data['media_type'] == null) data['media_type'] = path;
         return MediaItem.fromJson(data);
       }).toList();
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to fetch recommendations', e);
-    }
+    });
   }
 
-  Future<Map<String, dynamic>> getWatchProviders(int id, MediaType type) async {
+  Future<Map<String, dynamic>> getWatchProviders(int id, MediaType type) {
     final path = type == MediaType.tv ? 'tv' : 'movie';
-    try {
+    return _guard('fetching watch providers', () async {
       final response = await _tmdbGet(
         'https://api.themoviedb.org/3/$path/$id/watch/providers',
       );
       return response.data['results'] as Map<String, dynamic>;
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to fetch watch providers', e);
-    }
+    });
   }
 
-  Future<List<Map<String, dynamic>>> getVideos(int id, MediaType type) async {
+  Future<List<Map<String, dynamic>>> getVideos(int id, MediaType type) {
     final path = type == MediaType.tv ? 'tv' : 'movie';
-    try {
-      final response = await _tmdbGet('https://api.themoviedb.org/3/$path/$id/videos');
+    return _guard('fetching videos', () async {
+      final response = await _tmdbGet(
+        'https://api.themoviedb.org/3/$path/$id/videos',
+      );
       final List results = response.data['results'];
       return results.cast<Map<String, dynamic>>();
-    } catch (e) {
-      if (e is AppException) rethrow;
-      throw ParsingException('Failed to fetch videos', e);
-    }
+    });
   }
 }
