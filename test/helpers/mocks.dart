@@ -1,5 +1,7 @@
 import 'package:mocktail/mocktail.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:mediavore/core/security/tmdb_credential_store.dart';
 import 'package:mediavore/features/search/domain/repositories/media_repository.dart';
 import 'package:mediavore/features/search/data/datasources/media_remote_data_source.dart';
 import 'package:mediavore/features/media_details/data/datasources/media_list_local_data_source.dart';
@@ -137,3 +139,18 @@ class FakeSeenItem extends Fake implements SeenItem {}
 class FakeMediaItem extends Fake implements MediaItem {}
 
 class FakeQuickAddItem extends Fake implements QuickAddItem {}
+
+class MockFlutterSecureStorage extends Mock implements FlutterSecureStorage {}
+
+/// In-memory stand-in for [TmdbCredentialStore].
+class FakeTmdbCredentialStore extends Fake implements TmdbCredentialStore {
+  FakeTmdbCredentialStore([this._credential = '']);
+
+  String _credential;
+
+  @override
+  String get credential => _credential;
+
+  @override
+  Future<void> save(String value) async => _credential = value.trim();
+}

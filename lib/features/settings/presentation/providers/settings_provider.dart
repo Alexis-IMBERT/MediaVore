@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mediavore/core/security/tmdb_credential_store.dart';
 import 'package:mediavore/core/theme/app_palette.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -6,8 +7,9 @@ enum DisplayMode { list, grid, swipe }
 
 class SettingsProvider with ChangeNotifier {
   final SharedPreferences _prefs;
+  final TmdbCredentialStore _credentials;
 
-  SettingsProvider(this._prefs) {
+  SettingsProvider(this._prefs, this._credentials) {
     _loadSettings();
   }
 
@@ -66,14 +68,14 @@ class SettingsProvider with ChangeNotifier {
     }
     _themeMode = ThemeMode.values[themeModeIndex];
 
-    _tmdbApiKey = _prefs.getString('tmdbApiKey') ?? '';
+    _tmdbApiKey = _credentials.credential;
 
     notifyListeners();
   }
 
   Future<void> setTmdbApiKey(String apiKey) async {
-    _tmdbApiKey = apiKey;
-    await _prefs.setString('tmdbApiKey', apiKey);
+    await _credentials.save(apiKey);
+    _tmdbApiKey = _credentials.credential;
     notifyListeners();
   }
 

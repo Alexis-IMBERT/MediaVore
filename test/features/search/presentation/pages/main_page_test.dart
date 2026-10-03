@@ -32,7 +32,6 @@ void main() {
     when(() => mockSharedPreferences.getInt(any())).thenReturn(null);
     when(() => mockSharedPreferences.getDouble(any())).thenReturn(null);
     when(() => mockSharedPreferences.getBool(any())).thenReturn(null);
-    when(() => mockSharedPreferences.getString('tmdbApiKey')).thenReturn('fake_api_key');
 
     when(
       () => mockRepository.getAllListNames(),
@@ -65,7 +64,7 @@ void main() {
     ).thenAnswer((_) => const Stream<Achievement>.empty());
 
     searchProvider = SearchProvider(mockRepository);
-    settingsProvider = SettingsProvider(mockSharedPreferences);
+    settingsProvider = SettingsProvider(mockSharedPreferences, FakeTmdbCredentialStore('fake_api_key'));
 
     if (locator.isRegistered<MediaRepository>()) {
       locator.unregister<MediaRepository>();

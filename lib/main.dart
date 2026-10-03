@@ -7,6 +7,7 @@ import 'package:mediavore/core/services/background_task_service.dart';
 import 'package:mediavore/features/search/presentation/providers/search_provider.dart';
 import 'package:mediavore/features/settings/presentation/providers/settings_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:mediavore/core/security/tmdb_credential_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'features/search/presentation/pages/main_page.dart';
 
@@ -120,7 +121,7 @@ class MediaVoreApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (context) {
             final prefs = locator<SharedPreferences>();
-            return SettingsProvider(prefs);
+            return SettingsProvider(prefs, locator<TmdbCredentialStore>());
           },
         ),
         ChangeNotifierProvider(

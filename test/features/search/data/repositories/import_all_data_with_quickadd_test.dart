@@ -1,6 +1,4 @@
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
-import 'package:mocktail/mocktail.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
@@ -18,7 +16,7 @@ import 'package:mediavore/features/search/data/repositories/media_repository_imp
 import 'package:mediavore/core/utils/export_import_serializer.dart';
 import 'package:mediavore/features/search/domain/repositories/media_repository.dart';
 
-class MockSharedPreferences extends Mock implements SharedPreferences {}
+import '../../../../helpers/mocks.dart';
 
 void main() {
   late Isar isar;
@@ -26,7 +24,6 @@ void main() {
   late MediaCache cache;
   late MediaRepositoryImpl repo;
   late String tempPath;
-  late MockSharedPreferences mockPrefs;
 
   setUpAll(() async {
     await Isar.initializeIsarCore(download: true);
@@ -51,9 +48,10 @@ void main() {
     );
     local = MediaListLocalDataSource(isar);
     cache = MediaCache(isar);
-    mockPrefs = MockSharedPreferences();
-    when(() => mockPrefs.getString('tmdbApiKey')).thenReturn('mock_token');
-    final remote = MediaRemoteDataSource(dio: Dio(), prefs: mockPrefs);
+    final remote = MediaRemoteDataSource(
+      dio: Dio(),
+      credentials: FakeTmdbCredentialStore('mock_token'),
+    );
     repo = MediaRepositoryImpl(
       remoteDataSource: remote,
       localDataSource: local,

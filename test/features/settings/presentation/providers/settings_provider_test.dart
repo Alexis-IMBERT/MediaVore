@@ -19,7 +19,7 @@ void main() {
     when(() => mockPrefs.setDouble(any(), any())).thenAnswer((_) async => true);
     when(() => mockPrefs.setBool(any(), any())).thenAnswer((_) async => true);
 
-    provider = SettingsProvider(mockPrefs);
+    provider = SettingsProvider(mockPrefs, FakeTmdbCredentialStore());
   });
 
   group('SettingsProvider - Initialization', () {
@@ -39,7 +39,10 @@ void main() {
         () => mockPrefs.getBool('notificationCenterDebug'),
       ).thenReturn(true);
 
-      final newProvider = SettingsProvider(mockPrefs);
+      final newProvider = SettingsProvider(
+        mockPrefs,
+        FakeTmdbCredentialStore(),
+      );
 
       expect(newProvider.notificationCenterDebug, true);
     });
@@ -49,7 +52,10 @@ void main() {
       when(() => mockPrefs.getDouble('gridSize')).thenReturn(4.0);
       when(() => mockPrefs.getInt('themeMode')).thenReturn(1); // Light
 
-      final newProvider = SettingsProvider(mockPrefs);
+      final newProvider = SettingsProvider(
+        mockPrefs,
+        FakeTmdbCredentialStore(),
+      );
 
       expect(newProvider.displayMode, DisplayMode.grid);
       expect(newProvider.gridSize, 4.0);
@@ -58,6 +64,26 @@ void main() {
   });
 
   group('SettingsProvider - Setters', () {
+    test(
+      'setTmdbApiKey should save to the credential store, not prefs',
+      () async {
+        final store = FakeTmdbCredentialStore();
+        final p = SettingsProvider(mockPrefs, store);
+
+        await p.setTmdbApiKey(' token ');
+
+        expect(store.credential, 'token');
+        expect(p.tmdbApiKey, 'token');
+        verifyNever(() => mockPrefs.setString(any(), any()));
+      },
+    );
+
+    test('should load tmdbApiKey from the credential store', () {
+      final p = SettingsProvider(mockPrefs, FakeTmdbCredentialStore('k'));
+
+      expect(p.tmdbApiKey, 'k');
+    });
+
     test('setDisplayMode should update state and save to prefs', () async {
       await provider.setDisplayMode(DisplayMode.swipe);
 

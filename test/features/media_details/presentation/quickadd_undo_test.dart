@@ -82,7 +82,7 @@ void main() {
       when(() => repo.getQuickAddItems()).thenAnswer((_) async => [qa]);
     });
 
-    settingsProvider = SettingsProvider(MockSharedPreferences());
+    settingsProvider = SettingsProvider(MockSharedPreferences(), FakeTmdbCredentialStore());
     provider = SearchProvider(repo);
     await provider.loadQuickAddItems();
   });
