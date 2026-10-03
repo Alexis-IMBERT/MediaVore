@@ -4,8 +4,41 @@ import 'package:flutter/material.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/domain/entities/media_details.dart';
 import 'package:mediavore/core/domain/entities/seen_item.dart';
+import 'package:mediavore/core/error/exceptions.dart';
 import 'package:mediavore/core/services/background_task_service.dart';
 import 'package:mediavore/features/search/domain/repositories/media_repository.dart';
+
+/// Why the last search/discover request failed, so the UI can react to it.
+enum SearchErrorType { missingApiKey, invalidApiKey, offline, server, unknown }
+
+/// Maps an error thrown by [MediaRepository.searchMedia] / `discoverMedia`
+/// to a [SearchErrorType].
+SearchErrorType classifySearchError(Object error) {
+  if (error is ConfigurationException) return SearchErrorType.missingApiKey;
+  if (error is NetworkException) return SearchErrorType.offline;
+  if (error is ServerException) {
+    final code = error.statusCode;
+    if (code == 401 || code == 403) return SearchErrorType.invalidApiKey;
+    return SearchErrorType.server;
+  }
+  return SearchErrorType.unknown;
+}
+
+/// User-facing message for a [SearchErrorType].
+String searchErrorMessage(SearchErrorType type) {
+  switch (type) {
+    case SearchErrorType.missingApiKey:
+      return 'Add your TMDB API key in Settings to search and discover media.';
+    case SearchErrorType.invalidApiKey:
+      return 'Your TMDB API key was rejected. Check it in Settings.';
+    case SearchErrorType.offline:
+      return "You're offline. Check your connection and try again.";
+    case SearchErrorType.server:
+      return 'TMDB is unavailable right now. Please try again later.';
+    case SearchErrorType.unknown:
+      return 'Something went wrong while loading results.';
+  }
+}
 
 class SearchProvider with ChangeNotifier {
   final MediaRepository repository;
@@ -21,6 +54,7 @@ class SearchProvider with ChangeNotifier {
   bool _isDbSizeLoading = false;
   bool _isNotifiedRefreshing = false;
   String? _error;
+  SearchErrorType? _errorType;
   bool _isOffline = false;
   List<String> _listNames = ['watchlist'];
   final Map<String, List<String>> _listEntries = {}; // listName -> ["id:type"]
@@ -61,6 +95,9 @@ class SearchProvider with ChangeNotifier {
   bool get isDbSizeLoading => _isDbSizeLoading;
   bool get isNotifiedRefreshing => _isNotifiedRefreshing;
   String? get error => _error;
+
+  /// Kind of the last search/discover failure, or `null` if it succeeded.
+  SearchErrorType? get errorType => _errorType;
   bool get isOffline => _isOffline;
   List<String> get listNames => _listNames;
   int get cacheSize => _cacheSize;
@@ -452,7 +489,7 @@ class SearchProvider with ChangeNotifier {
     }
 
     _isLoading = true;
-    _error = null;
+    _clearSearchError();
     _currentPage = 1;
     _hasMore = true;
     notifyListeners();
@@ -528,8 +565,8 @@ class SearchProvider with ChangeNotifier {
       }
       _isOffline = false;
     } catch (e) {
-      _error = e.toString();
-      _isOffline = true;
+      _searchResults = [];
+      _setSearchError(e, 'searchMedia');
     } finally {
       _isLoading = false;
       await updateCacheSize();
@@ -538,7 +575,9 @@ class SearchProvider with ChangeNotifier {
   }
 
   Future<void> fetchNextPage() async {
-    if (_isLoading || !_hasMore) return;
+    // While a page load is failing, don't re-trigger it on every scroll event:
+    // the user retries explicitly via [retryNextPage] or a refresh.
+    if (_isLoading || !_hasMore || _errorType != null) return;
 
     _isLoading = true;
     notifyListeners();
@@ -623,8 +662,7 @@ class SearchProvider with ChangeNotifier {
       }
       _isOffline = false;
     } catch (e) {
-      _error = e.toString();
-      _isOffline = true;
+      _setSearchError(e, 'fetchNextPage');
       _currentPage--;
     } finally {
       _isLoading = false;
@@ -632,12 +670,30 @@ class SearchProvider with ChangeNotifier {
     }
   }
 
+  /// Retries the page load that failed in [fetchNextPage].
+  Future<void> retryNextPage() {
+    _clearSearchError();
+    return fetchNextPage();
+  }
+
+  void _setSearchError(Object e, String from) {
+    debugPrint('[SearchProvider] $from error: $e');
+    _errorType = classifySearchError(e);
+    _error = searchErrorMessage(_errorType!);
+    _isOffline = _errorType == SearchErrorType.offline;
+  }
+
+  void _clearSearchError() {
+    _error = null;
+    _errorType = null;
+  }
+
   void clearSearch() {
     _searchResults = [];
     _currentQuery = '';
     _currentPage = 1;
     _hasMore = true;
-    _error = null;
+    _clearSearchError();
     _isDiscoverMode = false;
     notifyListeners();
   }
