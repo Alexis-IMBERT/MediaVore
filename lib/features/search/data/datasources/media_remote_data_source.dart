@@ -142,24 +142,13 @@ class MediaRemoteDataSource {
       );
 
       final List results = response.data['results'];
-      final mediaItems = results.map((m) {
+      // Not enriched here: MediaRepositoryImpl enriches cache-first with
+      // bounded concurrency.
+      return results.map((m) {
         final data = Map<String, dynamic>.from(m);
         if (data['media_type'] == null) data['media_type'] = path;
         return MediaItem.fromJson(data);
       }).toList();
-
-      // Enrich items with full details to get number of seasons or runtime
-      final enrichedItems = await Future.wait(
-        mediaItems.map((item) async {
-          try {
-            return await getMediaItem(item.id, type: item.mediaType);
-          } catch (_) {
-            return item;
-          }
-        }),
-      );
-
-      return enrichedItems;
     });
   }
 
@@ -240,7 +229,9 @@ class MediaRemoteDataSource {
       );
 
       final List results = response.data['results'];
-      final mediaItems = results
+      // Not enriched here: MediaRepositoryImpl enriches cache-first with
+      // bounded concurrency.
+      return results
           .map((m) {
             final data = Map<String, dynamic>.from(m);
             if (data['media_type'] == null) data['media_type'] = path;
@@ -251,19 +242,6 @@ class MediaRemoteDataSource {
                 m.mediaType == MediaType.movie || m.mediaType == MediaType.tv,
           )
           .toList();
-
-      // Try to enrich items similarly to searchMedia
-      final enriched = await Future.wait(
-        mediaItems.map((item) async {
-          try {
-            return await getMediaItem(item.id, type: item.mediaType);
-          } catch (_) {
-            return item;
-          }
-        }),
-      );
-
-      return enriched;
     });
   }
 
