@@ -3,8 +3,6 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
-import 'package:mocktail/mocktail.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:mediavore/core/cache/media_cache.dart';
 import 'package:mediavore/core/utils/export_import_serializer.dart';
@@ -19,7 +17,7 @@ import 'package:mediavore/features/search/data/datasources/media_remote_data_sou
 import 'package:mediavore/features/search/data/repositories/media_repository_impl.dart';
 import 'package:mediavore/features/search/domain/repositories/media_repository.dart';
 
-class MockSharedPreferences extends Mock implements SharedPreferences {}
+import '../../../../helpers/mocks.dart';
 
 SeenItemModel _seen(int tmdbId, String title) => SeenItemModel(
   tmdbId: tmdbId,
@@ -59,10 +57,11 @@ void main() {
       name: 'test_import_atomic_${DateTime.now().microsecondsSinceEpoch}',
     );
     local = MediaListLocalDataSource(isar);
-    final prefs = MockSharedPreferences();
-    when(() => prefs.getString('tmdbApiKey')).thenReturn('mock_token');
     repo = MediaRepositoryImpl(
-      remoteDataSource: MediaRemoteDataSource(dio: Dio(), prefs: prefs),
+      remoteDataSource: MediaRemoteDataSource(
+        dio: Dio(),
+        credentials: FakeTmdbCredentialStore('mock_token'),
+      ),
       localDataSource: local,
       cache: MediaCache(isar),
       autoInit: false,
