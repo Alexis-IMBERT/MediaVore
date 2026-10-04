@@ -42,9 +42,7 @@ void main() {
 
     when(() => cache.init()).thenAnswer((_) async {});
     when(() => cache.cacheItem(any())).thenAnswer((_) async {});
-    when(() => cache.getDetails(any(), any())).thenReturn(null);
-    when(() => cache.areDetailsCached(any(), any())).thenReturn(false);
-    when(() => cache.isSeasonCached(any(), any())).thenReturn(false);
+    when(() => cache.getDetails(any(), any())).thenAnswer((_) async => null);
     when(
       () => cache.cleanup(
         keepKeys: any(named: 'keepKeys'),
@@ -85,9 +83,9 @@ void main() {
         ),
       ).thenAnswer((_) async => raw);
       // Item 0 is already cached with full details.
-      when(
-        () => cache.getDetails(0, MediaType.movie),
-      ).thenReturn(MediaDetails(item: _item(0, runtime: 99), cast: const []));
+      when(() => cache.getDetails(0, MediaType.movie)).thenAnswer(
+        (_) async => MediaDetails(item: _item(0, runtime: 99), cast: const []),
+      );
 
       var inFlight = 0;
       var maxInFlight = 0;

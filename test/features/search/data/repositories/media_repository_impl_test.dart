@@ -19,6 +19,8 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(MediaType.movie);
+    registerFallbackValue(<MediaItem>[]);
+    registerFallbackValue(<(int, MediaType)>[]);
     registerFallbackValue(
       SeenItemModel(
         tmdbId: 1,
@@ -64,13 +66,23 @@ void main() {
     ).thenAnswer((_) async {});
     when(() => mockCache.clearAll()).thenAnswer((_) async {});
     when(() => mockCache.getCacheSize()).thenAnswer((_) async => 1024);
-    when(() => mockCache.isItemCached(any(), any())).thenReturn(false);
-    when(() => mockCache.areDetailsCached(any(), any())).thenReturn(false);
-    when(() => mockCache.isSeasonCached(any(), any())).thenReturn(false);
     when(
       () => mockCache.cacheSeason(any(), any(), any()),
     ).thenAnswer((_) async {});
-    when(() => mockCache.getItem(any(), any())).thenReturn(null);
+    when(() => mockCache.getItem(any(), any())).thenAnswer((_) async => null);
+    when(() => mockCache.cacheItems(any())).thenAnswer((_) async {});
+    when(() => mockCache.getItems(any())).thenAnswer(
+      (inv) async => List<MediaItem?>.filled(
+        (inv.positionalArguments.first as List).length,
+        null,
+      ),
+    );
+    when(
+      () => mockCache.getDetails(any(), any()),
+    ).thenAnswer((_) async => null);
+    when(
+      () => mockCache.getSeason(any(), any()),
+    ).thenAnswer((_) async => null);
 
     when(
       () => mockLocalDataSource.getAllListNames(),
@@ -254,9 +266,6 @@ void main() {
       'should fetch and cache media details including similar, recommended, providers, and videos',
       () async {
         when(
-          () => mockCache.areDetailsCached(tId, MediaType.movie),
-        ).thenReturn(false);
-        when(
           () =>
               mockRemoteDataSource.getMediaItem(tId, type: any(named: 'type')),
         ).thenAnswer((_) async => tMediaItem);
@@ -333,7 +342,7 @@ void main() {
         when(
           () => mockLocalDataSource.removeFromList(any(), any(), any()),
         ).thenAnswer((_) async => Future.value());
-        when(() => mockCache.getItem(any(), any())).thenReturn(tMediaItem);
+        when(() => mockCache.getItem(any(), any())).thenAnswer((_) async => tMediaItem);
 
         await repository.markAsSeen(tSeenItem);
 
@@ -362,7 +371,7 @@ void main() {
         when(
           () => mockLocalDataSource.markAsSeen(any()),
         ).thenAnswer((_) async => Future.value());
-        when(() => mockCache.getItem(any(), any())).thenReturn(null);
+        when(() => mockCache.getItem(any(), any())).thenAnswer((_) async => null);
         when(
           () => mockRemoteDataSource.getMediaItem(any(), type: MediaType.tv),
         ).thenAnswer((_) async => tMediaItem.copyWith(mediaType: MediaType.tv));
@@ -386,7 +395,7 @@ void main() {
       final result = await repository.getSimilarMedia(1, MediaType.movie);
 
       expect(result, contains(tMediaItem));
-      verify(() => mockCache.cacheItem(tMediaItem)).called(1);
+      verify(() => mockCache.cacheItems([tMediaItem])).called(1);
     });
 
     test('getWatchProviders should return map from remote', () async {
@@ -479,7 +488,7 @@ void main() {
       when(
         () => mockLocalDataSource.markNotifiedRefreshed(any(), any(), any()),
       ).thenAnswer((_) async {});
-      when(() => mockCache.getSeason(any(), any())).thenReturn(null);
+      when(() => mockCache.getSeason(any(), any())).thenAnswer((_) async => null);
     }
 
     test('should point to the next episode after the latest streak', () async {
@@ -492,7 +501,7 @@ void main() {
           seasons: const [TVSeason(id: 4, seasonNumber: 4, episodeCount: 6)],
         ),
       );
-      when(() => mockCache.getItem(1, MediaType.tv)).thenReturn(null);
+      when(() => mockCache.getItem(1, MediaType.tv)).thenAnswer((_) async => null);
       when(
         () => mockLocalDataSource.getSeenStatus(1, 'tv'),
       ).thenAnswer((_) async => [seen(4, 5, DateTime(2024, 5, 1))]);
@@ -537,7 +546,7 @@ void main() {
           ],
         ),
       );
-      when(() => mockCache.getItem(1, MediaType.tv)).thenReturn(null);
+      when(() => mockCache.getItem(1, MediaType.tv)).thenAnswer((_) async => null);
       when(
         () => mockLocalDataSource.getSeenStatus(1, 'tv'),
       ).thenAnswer((_) async => [seen(4, 5, DateTime(2024, 5, 1))]);
@@ -565,7 +574,7 @@ void main() {
           seasons: const [TVSeason(id: 1, seasonNumber: 1, episodeCount: 2)],
         ),
       );
-      when(() => mockCache.getItem(1, MediaType.tv)).thenReturn(null);
+      when(() => mockCache.getItem(1, MediaType.tv)).thenAnswer((_) async => null);
       when(() => mockLocalDataSource.getSeenStatus(1, 'tv')).thenAnswer(
         (_) async => [
           seen(1, 1, DateTime(2024, 1, 1)),
@@ -606,7 +615,7 @@ void main() {
             seasons: const [TVSeason(id: 1, seasonNumber: 1, episodeCount: 2)],
           ),
         );
-        when(() => mockCache.getItem(1, MediaType.tv)).thenReturn(null);
+        when(() => mockCache.getItem(1, MediaType.tv)).thenAnswer((_) async => null);
         when(
           () => mockLocalDataSource.getSeenStatus(1, 'tv'),
         ).thenAnswer((_) async => [seen(1, 2, DateTime(2024, 1, 8))]);
@@ -638,7 +647,7 @@ void main() {
           seasons: const [TVSeason(id: 4, seasonNumber: 4, episodeCount: 6)],
         ),
       );
-      when(() => mockCache.getItem(1, MediaType.tv)).thenReturn(null);
+      when(() => mockCache.getItem(1, MediaType.tv)).thenAnswer((_) async => null);
       when(
         () => mockLocalDataSource.getSeenStatus(1, 'tv'),
       ).thenAnswer((_) async => [seen(4, 5, DateTime(2024, 5, 1))]);
@@ -688,7 +697,7 @@ void main() {
           seasons: const [TVSeason(id: 1, seasonNumber: 1, episodeCount: 1)],
         ),
       );
-      when(() => mockCache.getItem(1, MediaType.tv)).thenReturn(null);
+      when(() => mockCache.getItem(1, MediaType.tv)).thenAnswer((_) async => null);
       when(
         () => mockLocalDataSource.getSeenStatus(1, 'tv'),
       ).thenAnswer((_) async => []);
@@ -717,7 +726,7 @@ void main() {
         () => mockRemoteDataSource.getMediaItem(1, type: MediaType.tv),
       ).thenAnswer((_) async => media);
       // Simulate the item cached by the preceding refresh step.
-      when(() => mockCache.getItem(1, MediaType.tv)).thenReturn(media);
+      when(() => mockCache.getItem(1, MediaType.tv)).thenAnswer((_) async => media);
 
       final seenItems = [seen(1, 1, DateTime(2024, 1, 1))];
       when(
@@ -779,7 +788,7 @@ void main() {
             ],
           ),
         );
-        when(() => mockCache.getItem(1, MediaType.tv)).thenReturn(null);
+        when(() => mockCache.getItem(1, MediaType.tv)).thenAnswer((_) async => null);
         when(
           () => mockLocalDataSource.getSeenStatus(1, 'tv'),
         ).thenAnswer((_) async => [seen(1, 1, DateTime(2024, 1, 1))]);
@@ -825,7 +834,7 @@ void main() {
             seasons: const [TVSeason(id: 1, seasonNumber: 1, episodeCount: 2)],
           ),
         );
-        when(() => mockCache.getItem(1, MediaType.tv)).thenReturn(null);
+        when(() => mockCache.getItem(1, MediaType.tv)).thenAnswer((_) async => null);
         when(
           () => mockLocalDataSource.getSeenStatus(1, 'tv'),
         ).thenAnswer((_) async => [seen(1, 1, DateTime(2024, 1, 1))]);
@@ -867,7 +876,7 @@ void main() {
             seasons: const [TVSeason(id: 1, seasonNumber: 1, episodeCount: 2)],
           ),
         );
-        when(() => mockCache.getItem(1, MediaType.tv)).thenReturn(null);
+        when(() => mockCache.getItem(1, MediaType.tv)).thenAnswer((_) async => null);
         when(
           () => mockLocalDataSource.getSeenStatus(1, 'tv'),
         ).thenAnswer((_) async => [seen(1, 1, DateTime(2024, 1, 1))]);
