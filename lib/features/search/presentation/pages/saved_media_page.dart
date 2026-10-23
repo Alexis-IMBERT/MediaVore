@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:mediavore/core/l10n/l10n.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:mediavore/core/di/injection.dart';
@@ -51,6 +52,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
   // Sync state tracking for external list mutations
   String _lastSelectedList = 'watchlist';
   Set<String> _lastListSet = {};
+  int? _lastLanguageRevision;
 
   // Edit Mode State
   bool _isEditMode = false;
@@ -269,8 +271,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     // below reconciles with the persisted state.
     setState(() {
       _currentItems.removeWhere(
-        (item) =>
-            _selectedItems.contains('${item.id}:${item.mediaType.name}'),
+        (item) => _selectedItems.contains('${item.id}:${item.mediaType.name}'),
       );
       _isEditMode = false;
       _selectedItems.clear();
@@ -327,8 +328,8 @@ class SavedMediaPageState extends State<SavedMediaPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'Display Options',
+                Text(
+                  context.l10n.listsDisplayOptions,
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
                 const SizedBox(height: 16),
@@ -360,8 +361,8 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                 ),
                 if (settings.displayMode == DisplayMode.grid) ...[
                   const SizedBox(height: 24),
-                  const Text(
-                    'Grid Size',
+                  Text(
+                    context.l10n.listsGridSize,
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   Row(
@@ -406,17 +407,17 @@ class SavedMediaPageState extends State<SavedMediaPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(
+            Padding(
               padding: EdgeInsets.all(16.0),
               child: Text(
-                'Sharing & Importing',
+                context.l10n.listsSharingImporting,
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
             ),
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.qr_code_scanner),
-              title: const Text('Scan QR Code'),
+              title: Text(context.l10n.listsScanQr),
               onTap: () {
                 Navigator.pop(context);
                 _showScanner();
@@ -424,7 +425,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
             ),
             ListTile(
               leading: const Icon(Icons.link),
-              title: const Text('Import via Link'),
+              title: Text(context.l10n.listsImportViaLink),
               onTap: () {
                 Navigator.pop(context);
                 _showImportLinkDialog(provider);
@@ -433,16 +434,18 @@ class SavedMediaPageState extends State<SavedMediaPage> {
             const Divider(),
             ListTile(
               leading: const Icon(Icons.share),
-              title: const Text('Share Web Link (WhatsApp/SMS)'),
+              title: Text(context.l10n.listsShareWebLink),
               onTap: () {
                 Navigator.pop(context);
                 final link = provider.getShareLinkForList(_selectedList);
-                Share.share('Check out my $_selectedList on MediaVore: $link');
+                Share.share(
+                  context.l10n.listsShareLinkMessage(_selectedList, link),
+                );
               },
             ),
             ListTile(
               leading: const Icon(Icons.qr_code),
-              title: const Text('Show QR Code'),
+              title: Text(context.l10n.listsShowQr),
               onTap: () {
                 Navigator.pop(context);
                 _showQRCodeDialog(provider, settings);
@@ -473,12 +476,12 @@ class SavedMediaPageState extends State<SavedMediaPage> {
 
       await Share.shareXFiles([
         XFile(file.path),
-      ], text: 'Scan this QR code to import my $_selectedList on MediaVore');
+      ], text: context.l10n.listsQrShareMessage(_selectedList));
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error sharing QR code: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.listsQrShareError('$e'))),
+        );
       }
     }
   }
@@ -499,7 +502,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
       builder: (context) => AlertDialog(
         backgroundColor: theme.colorScheme.surface,
         title: Text(
-          'Share $_selectedList',
+          context.l10n.listsShareTitle(_selectedList),
           style: TextStyle(color: theme.colorScheme.onSurface),
         ),
         content: Column(
@@ -585,7 +588,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                     ],
                     const SizedBox(height: 12),
                     Text(
-                      'MediaVore List Share',
+                      context.l10n.listsQrCaption,
                       style: TextStyle(
                         color: colors.logicFlow,
                         fontSize: 14,
@@ -598,7 +601,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Scan this with another phone to import the list.',
+              context.l10n.listsQrHint,
               textAlign: TextAlign.center,
               style: TextStyle(color: theme.colorScheme.onSurface),
             ),
@@ -608,11 +611,11 @@ class SavedMediaPageState extends State<SavedMediaPage> {
           IconButton(
             icon: const Icon(Icons.share),
             onPressed: _shareQRCodeImage,
-            tooltip: 'Share QR Code Image',
+            tooltip: context.l10n.listsShareQrImage,
           ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: Text(context.l10n.commonClose),
           ),
         ],
       ),
@@ -628,7 +631,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
         child: Column(
           children: [
             AppBar(
-              title: const Text('Scan MediaVore List'),
+              title: Text(context.l10n.listsScanTitle),
               leading: IconButton(
                 icon: const Icon(Icons.close),
                 onPressed: () => Navigator.pop(context),
@@ -651,9 +654,9 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                 },
               ),
             ),
-            const Padding(
+            Padding(
               padding: EdgeInsets.all(24.0),
-              child: Text('Point your camera at a MediaVore QR code'),
+              child: Text(context.l10n.listsScanHint),
             ),
           ],
         ),
@@ -685,19 +688,19 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Import via Link'),
+        title: Text(context.l10n.listsImportViaLink),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'Paste the shared link here',
-            labelText: 'Share Link',
+          decoration: InputDecoration(
+            hintText: context.l10n.listsPasteLinkHint,
+            labelText: context.l10n.listsShareLinkLabel,
           ),
           autofocus: true,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () {
@@ -715,16 +718,16 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                   _showImportConfirmationDialog(provider, name, items);
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Invalid link format')),
+                    SnackBar(content: Text(context.l10n.listsInvalidLink)),
                   );
                 }
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Could not parse link')),
+                  SnackBar(content: Text(context.l10n.listsCouldNotParseLink)),
                 );
               }
             },
-            child: const Text('Import'),
+            child: Text(context.l10n.commonImport),
           ),
         ],
       ),
@@ -740,25 +743,25 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Confirm Import'),
+        title: Text(context.l10n.listsConfirmImport),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'You are about to import a list with ${entries.length} items.',
-            ),
+            Text(context.l10n.importListMessage(entries.length)),
             const SizedBox(height: 16),
             TextField(
               controller: controller,
-              decoration: const InputDecoration(labelText: 'List Name'),
+              decoration: InputDecoration(
+                labelText: context.l10n.importListNameLabel,
+              ),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () async {
@@ -772,7 +775,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                 loadSavedMedia();
               }
             },
-            child: const Text('Confirm'),
+            child: Text(context.l10n.commonConfirm),
           ),
         ],
       ),
@@ -804,7 +807,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                     ),
                   ),
                   Text(
-                    'Sort Options',
+                    context.l10n.listsSortOptions,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -812,21 +815,21 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                   const SizedBox(height: 16),
                   _buildSortItem(
                     SortMethod.manual,
-                    'Manual Order',
+                    context.l10n.listsSortManual,
                     Icons.drag_indicator,
-                    'Drag and drop items to reorder',
+                    context.l10n.listsSortManualHint,
                   ),
                   _buildSortItem(
                     SortMethod.releaseDate,
-                    'Release Date',
+                    context.l10n.listsSortReleaseDate,
                     Icons.calendar_today,
-                    'Sort by when it was released',
+                    context.l10n.listsSortReleaseDateHint,
                   ),
                   _buildSortItem(
                     SortMethod.shuffle,
-                    'Shuffle',
+                    context.l10n.listsSortShuffle,
                     Icons.shuffle,
-                    'Randomize the list',
+                    context.l10n.listsSortShuffleHint,
                   ),
                   const Divider(),
                   ListTile(
@@ -834,7 +837,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                       _isReversed ? Icons.swap_vert_circle : Icons.swap_vert,
                       color: _isReversed ? colors.logicFlow : null,
                     ),
-                    title: const Text('Reverse Order'),
+                    title: Text(context.l10n.listsReverseOrder),
                     trailing: Switch(
                       value: _isReversed,
                       activeThumbColor: colors.logicFlow,
@@ -911,6 +914,16 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     final colors = context.appColors;
 
     final currentListSet = provider.getListEntriesCached(_selectedList).toSet();
+    final languageRevision = provider.tmdbLanguageRevision;
+    if (_lastLanguageRevision == null) {
+      _lastLanguageRevision = languageRevision;
+    } else if (_lastLanguageRevision != languageRevision) {
+      // App language changed: details must be re-fetched in the new one.
+      _lastLanguageRevision = languageRevision;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) loadSavedMedia();
+      });
+    }
     if (_lastSelectedList != _selectedList) {
       _lastSelectedList = _selectedList;
       _lastListSet = currentListSet;
@@ -953,9 +966,9 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                 Flexible(
                   child: Text(
                     _isEditMode
-                        ? '${_selectedItems.length} selected'
+                        ? context.l10n.listsSelectedCount(_selectedItems.length)
                         : (_selectedList == 'watchlist'
-                              ? 'Watchlist'
+                              ? context.l10n.listsWatchlist
                               : _selectedList),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -971,7 +984,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                     onPressed: _selectedItems.isEmpty
                         ? null
                         : _removeSelectedItems,
-                    tooltip: 'Remove selected',
+                    tooltip: context.l10n.listsRemoveSelected,
                   ),
                 ]
               : [
@@ -979,17 +992,17 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                     icon: const Icon(Icons.share),
                     onPressed: () =>
                         _showShareAndImportOptions(provider, settings),
-                    tooltip: 'Sharing & Importing',
+                    tooltip: context.l10n.listsSharingImporting,
                   ),
                   IconButton(
                     icon: const Icon(Icons.grid_on),
                     onPressed: _showDisplayModePicker,
-                    tooltip: 'Display Mode',
+                    tooltip: context.l10n.listsDisplayMode,
                   ),
                   IconButton(
                     icon: const Icon(Icons.sort),
                     onPressed: _showSortOptions,
-                    tooltip: 'Sort Options',
+                    tooltip: context.l10n.listsSortOptions,
                   ),
                   IconButton(
                     icon: _isRefreshing
@@ -1031,7 +1044,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
               return const Center(child: CircularProgressIndicator());
             }
             if (displayItems == null || displayItems.isEmpty) {
-              return const Center(child: Text('No items in this list.'));
+              return Center(child: Text(context.l10n.listsEmpty));
             }
 
             final sortedItems = _getFilteredAndSortedItems(
@@ -1370,7 +1383,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Text(
-                  'Switch List',
+                  context.l10n.listsSwitchList,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
@@ -1387,11 +1400,13 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                     return ListTile(
                       leading: _buildListPreviewIcon(previews, provider),
                       title: Text(
-                        name == 'watchlist' ? 'Watchlist' : name,
+                        name == 'watchlist'
+                            ? context.l10n.listsWatchlist
+                            : name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      subtitle: Text('$count items'),
+                      subtitle: Text(context.l10n.listsItemCount(count)),
                       selected: name == _selectedList,
                       trailing: (name != 'watchlist')
                           ? Row(
@@ -1434,7 +1449,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.add),
-                title: const Text('Create New List'),
+                title: Text(context.l10n.listsCreateNew),
                 onTap: () {
                   Navigator.pop(context);
                   _showCreateListDialog(context, provider);
@@ -1507,16 +1522,16 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('New List'),
+        title: Text(context.l10n.listsNewList),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(hintText: 'List name'),
+          decoration: InputDecoration(hintText: context.l10n.listsNameHint),
           autofocus: true,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () async {
@@ -1537,7 +1552,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                 if (context.mounted) Navigator.pop(context);
               }
             },
-            child: const Text('Create'),
+            child: Text(context.l10n.commonCreate),
           ),
         ],
       ),
@@ -1553,14 +1568,12 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete List'),
-        content: Text(
-          'Are you sure you want to delete "$listName"? This will also remove all items from this list.',
-        ),
+        title: Text(context.l10n.listsDeleteList),
+        content: Text(context.l10n.listsDeleteListMessage(listName)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () async {
@@ -1579,7 +1592,10 @@ class SavedMediaPageState extends State<SavedMediaPage> {
               if (context.mounted) Navigator.pop(context);
               loadSavedMedia();
             },
-            child: Text('Delete', style: TextStyle(color: colors.error)),
+            child: Text(
+              context.l10n.commonDelete,
+              style: TextStyle(color: colors.error),
+            ),
           ),
         ],
       ),
@@ -1618,9 +1634,11 @@ class _MediaListTile extends StatelessWidget {
 
     String lengthText = '';
     if (isTv) {
-      lengthText = '${item.numberOfSeasons ?? "?"} seasons';
+      lengthText = (item.numberOfSeasons == null
+          ? '?'
+          : context.l10n.mediaSeasonCount(item.numberOfSeasons!));
     } else if (item.runtime != null) {
-      lengthText = '${item.runtime} min';
+      lengthText = context.l10n.mediaRuntimeMinutes(item.runtime!);
     }
 
     final colors = context.appColors;
@@ -1712,7 +1730,9 @@ class _MediaGridItem extends StatelessWidget {
 
     String lengthText = '';
     if (isTv) {
-      lengthText = '${item.numberOfSeasons ?? "?"} S';
+      lengthText = context.l10n.mediaSeasonShort(
+        '${item.numberOfSeasons ?? "?"}',
+      );
     } else if (item.runtime != null) {
       lengthText = '${item.runtime}m';
     }

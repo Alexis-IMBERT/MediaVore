@@ -9,6 +9,9 @@ import 'package:mediavore/core/domain/entities/crew_member.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/domain/entities/media_details.dart';
 import 'package:mediavore/core/domain/entities/seen_item.dart';
+import 'package:mediavore/core/l10n/app_language.dart';
+import 'package:mediavore/core/l10n/l10n.dart';
+import 'package:mediavore/core/l10n/locale_service.dart';
 import 'package:mediavore/features/media_details/data/datasources/media_list_local_data_source.dart';
 import 'package:mediavore/features/media_details/data/models/seen_item_model.dart';
 import 'package:mediavore/features/media_details/data/models/notified_item_model.dart';
@@ -29,6 +32,10 @@ class MediaRepositoryImpl implements MediaRepository {
 
   /// Gates the automatic warm-up started on creation. `null` = always run.
   final CacheWarmupPolicy? warmupPolicy;
+
+  /// App language; the TMDB cache is dropped when it changes so titles are
+  /// never shown in a previous language. `null` disables the check.
+  final LocaleService? localeService;
   final Completer<void> _initCompleter = Completer<void>();
 
   /// Max concurrent `/movie|tv/{id}` requests when enriching a result page.
@@ -53,8 +60,10 @@ class MediaRepositoryImpl implements MediaRepository {
     required this.localDataSource,
     required this.cache,
     this.warmupPolicy,
+    this.localeService,
     bool autoInit = true,
   }) {
+    localeService?.addListener(_onLanguageChanged);
     if (autoInit) {
       _init();
     } else {
@@ -68,6 +77,7 @@ class MediaRepositoryImpl implements MediaRepository {
     try {
       debugPrint('[Repo] Starting Cache Init...');
       await cache.init();
+      await _dropStaleLanguageCache();
       debugPrint('[Repo] Cache Init Done.');
     } catch (e) {
       debugPrint('[Repo] Cache Init Error: $e');
@@ -89,6 +99,51 @@ class MediaRepositoryImpl implements MediaRepository {
     } else {
       debugPrint('[Repo] Skipping automatic cache warm-up (throttled).');
     }
+  }
+
+  /// Clears the TMDB cache if it was filled in another language than the
+  /// current one. Returns whether it was cleared.
+  Future<bool> _dropStaleLanguageCache() async {
+    final locale = localeService;
+    if (locale == null || !locale.isCacheLanguageStale) return false;
+    debugPrint(
+      '[Repo] Cache language differs from ${locale.tmdbLanguage}; clearing.',
+    );
+    cancelCacheWarmup();
+    await cache.clearAll();
+    await locale.markCacheLanguage();
+    return true;
+  }
+
+  void _onLanguageChanged() => unawaited(applyLanguageChange());
+
+  @override
+  Future<bool> applyLanguageChange() {
+    return _languageChange ??= _applyLanguageChange().whenComplete(
+      () => _languageChange = null,
+    );
+  }
+
+  Future<bool>? _languageChange;
+
+  Future<bool> _applyLanguageChange() async {
+    await _ensureInitialized();
+    if (!await _dropStaleLanguageCache()) return false;
+    // Re-fetch saved items so their titles come back in the new language.
+    unawaited(_runWarmup());
+    return true;
+  }
+
+  /// Strings for progress messages, in the current app language.
+  AppLocalizations get _l10n => lookupAppLocalizations(
+    (localeService?.current ?? fallbackAppLanguage).locale,
+  );
+
+  /// Title of a saved entry in the current language: the cached TMDB title
+  /// when available, else the one stored when it was saved.
+  T _preferCachedTitle<T extends String?>(MediaItem? cached, T storedTitle) {
+    final title = cached?.title;
+    return (title == null || title.isEmpty) ? storedTitle : title as T;
   }
 
   /// Stops the in-flight cache warm-up after the current item.
@@ -237,7 +292,7 @@ class MediaRepositoryImpl implements MediaRepository {
     List<int>? genreIds,
     int? releaseYear,
     double? minRating,
-    String? language,
+    String? originalLanguage,
     MediaType? type,
   }) async {
     await _ensureInitialized();
@@ -249,7 +304,7 @@ class MediaRepositoryImpl implements MediaRepository {
       genreIds: genreIds,
       releaseYear: releaseYear,
       minRating: minRating,
-      language: language,
+      originalLanguage: originalLanguage,
       type: type,
     );
     final enriched = await _enrichItems(results);
@@ -263,7 +318,7 @@ class MediaRepositoryImpl implements MediaRepository {
     List<int>? genreIds,
     int? releaseYear,
     double? minRating,
-    String? language,
+    String? originalLanguage,
     MediaType type = MediaType.movie,
     String sortBy = 'popularity.desc',
   }) async {
@@ -273,7 +328,7 @@ class MediaRepositoryImpl implements MediaRepository {
       genreIds: genreIds,
       releaseYear: releaseYear,
       minRating: minRating,
-      language: language,
+      originalLanguage: originalLanguage,
       type: type,
       sortBy: sortBy,
     );
@@ -768,7 +823,8 @@ class MediaRepositoryImpl implements MediaRepository {
     }
 
     return (
-      episode: aired ??
+      episode:
+          aired ??
           findNextEpisodeAfterTail(
             tail: tail,
             episodes: episodes,
@@ -920,7 +976,7 @@ class MediaRepositoryImpl implements MediaRepository {
       for (var i = 0; i < items.length; i++)
         MediaItemPreview(
           id: items[i].id,
-          title: items[i].title,
+          title: _preferCachedTitle(cachedItems[i], items[i].title),
           posterPath: cachedItems[i]?.posterPath,
           type: items[i].type,
         ),
@@ -1226,24 +1282,18 @@ class MediaRepositoryImpl implements MediaRepository {
     final items = await localDataSource.getAllSeenItems();
     final List<SeenItem> results = [];
 
-    // Only rows without a stored poster need the cache: one batched read.
-    final missingPoster = items.where((m) => m.posterPath == null).toList();
-    final cachedPosters = <String, String?>{};
-    if (missingPoster.isNotEmpty) {
-      final cached = await cache.getItems([
-        for (final m in missingPoster)
-          (m.tmdbId, m.type == 'movie' ? MediaType.movie : MediaType.tv),
-      ]);
-      for (var i = 0; i < missingPoster.length; i++) {
-        final m = missingPoster[i];
-        cachedPosters['${m.type}:${m.tmdbId}'] = cached[i]?.posterPath;
-      }
-    }
+    // One batched cache read: localized titles, and posters for rows
+    // saved without one.
+    final cached = await cache.getItems([
+      for (final m in items)
+        (m.tmdbId, m.type == 'movie' ? MediaType.movie : MediaType.tv),
+    ]);
 
-    for (final m in items) {
+    for (var i = 0; i < items.length; i++) {
+      final m = items[i];
       final type = m.type == 'movie' ? MediaType.movie : MediaType.tv;
       String? posterPath = m.posterPath;
-      final cachedPoster = cachedPosters['${m.type}:${m.tmdbId}'];
+      final cachedPoster = cached[i]?.posterPath;
 
       if (posterPath == null && cachedPoster != null) {
         posterPath = cachedPoster;
@@ -1257,7 +1307,7 @@ class MediaRepositoryImpl implements MediaRepository {
           id: m.isarId,
           tmdbId: m.tmdbId,
           type: type,
-          title: m.title,
+          title: _preferCachedTitle(cached[i], m.title),
           posterPath: posterPath,
           seenDate: m.seenDate,
           seasonNumber: m.seasonNumber,
@@ -1291,7 +1341,7 @@ class MediaRepositoryImpl implements MediaRepository {
           id: m.isarId,
           tmdbId: m.tmdbId,
           type: m.type == 'movie' ? MediaType.movie : MediaType.tv,
-          title: m.title,
+          title: _preferCachedTitle(cachedItem, m.title),
           posterPath: posterPath,
           seenDate: m.seenDate,
           seasonNumber: m.seasonNumber,
@@ -1397,7 +1447,7 @@ class MediaRepositoryImpl implements MediaRepository {
       final title = model.title;
 
       if (onProgress != null) {
-        onProgress(i / total, 'Processing $title...');
+        onProgress(i / total, _l10n.progressProcessingItem(title));
       }
 
       if (runtime == null || genres == null) {
@@ -1485,7 +1535,7 @@ class MediaRepositoryImpl implements MediaRepository {
       onProgress: (p, s) => onProgress?.call(p * 0.9, s),
     );
 
-    onProgress?.call(0.9, 'Saving entries...');
+    onProgress?.call(0.9, _l10n.progressSavingEntries);
     await localDataSource.importAll(
       mode: mode,
       seen: seenItems,
@@ -1494,7 +1544,7 @@ class MediaRepositoryImpl implements MediaRepository {
       quickAdd: envelope.quickAdd,
       lists: envelope.lists,
     );
-    onProgress?.call(1.0, 'Import complete');
+    onProgress?.call(1.0, _l10n.progressImportComplete);
   }
 
   @override
@@ -1564,21 +1614,24 @@ class MediaRepositoryImpl implements MediaRepository {
   Future<List<NotifiedItem>> getNotifiedItems() async {
     await _ensureInitialized();
     final items = await localDataSource.getNotifiedItems();
-    return items
-        .map(
-          (m) => NotifiedItem(
-            tmdbId: m.tmdbId,
-            type: m.type == 'movie' ? MediaType.movie : MediaType.tv,
-            title: m.title,
-            posterPath: m.posterPath,
-            releaseDate: m.releaseDate,
-            seasonNumber: m.seasonNumber,
-            episodeNumber: m.episodeNumber,
-            runtime: m.runtime,
-            autoNotify: m.autoNotify,
-          ),
-        )
-        .toList();
+    final cached = await cache.getItems([
+      for (final m in items)
+        (m.tmdbId, m.type == 'movie' ? MediaType.movie : MediaType.tv),
+    ]);
+    return [
+      for (var i = 0; i < items.length; i++)
+        NotifiedItem(
+          tmdbId: items[i].tmdbId,
+          type: items[i].type == 'movie' ? MediaType.movie : MediaType.tv,
+          title: _preferCachedTitle(cached[i], items[i].title),
+          posterPath: items[i].posterPath,
+          releaseDate: items[i].releaseDate,
+          seasonNumber: items[i].seasonNumber,
+          episodeNumber: items[i].episodeNumber,
+          runtime: items[i].runtime,
+          autoNotify: items[i].autoNotify,
+        ),
+    ];
   }
 
   @override
@@ -1805,22 +1858,25 @@ class MediaRepositoryImpl implements MediaRepository {
   Future<List<QuickAddItem>> getQuickAddItems() async {
     await _ensureInitialized();
     final items = await localDataSource.getQuickAddItems();
-    return items
-        .map(
-          (m) => QuickAddItem(
-            isarId: m.isarId,
-            tmdbId: m.tmdbId,
-            type: m.type == 'movie' ? MediaType.movie : MediaType.tv,
-            seasonNumber: m.seasonNumber,
-            episodeNumber: m.episodeNumber,
-            insertedAt: m.insertedAt,
-            airDate: m.airDate,
-            title: m.title,
-            posterPath: m.posterPath,
-            runtime: m.runtime,
-          ),
-        )
-        .toList();
+    final cached = await cache.getItems([
+      for (final m in items)
+        (m.tmdbId, m.type == 'movie' ? MediaType.movie : MediaType.tv),
+    ]);
+    return [
+      for (var i = 0; i < items.length; i++)
+        QuickAddItem(
+          isarId: items[i].isarId,
+          tmdbId: items[i].tmdbId,
+          type: items[i].type == 'movie' ? MediaType.movie : MediaType.tv,
+          seasonNumber: items[i].seasonNumber,
+          episodeNumber: items[i].episodeNumber,
+          insertedAt: items[i].insertedAt,
+          airDate: items[i].airDate,
+          title: _preferCachedTitle(cached[i], items[i].title),
+          posterPath: items[i].posterPath,
+          runtime: items[i].runtime,
+        ),
+    ];
   }
 
   @override
