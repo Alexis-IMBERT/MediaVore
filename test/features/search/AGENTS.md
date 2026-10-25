@@ -5,7 +5,9 @@ Tests for the `search` feature, mirroring `lib/features/search/`.
 ## Key files
 
 - `test/features/search/data/datasources/media_remote_data_source_test.dart`
-- `test/features/search/data/repositories/media_repository_impl_test.dart`
+- `test/features/search/data/repositories/media_repository_impl_test.dart` — behaviour
+  through the facade (most notification / Quick Add scenarios live here).
+- `test/features/search/data/services/` — unit tests of the repository services.
 - `test/features/search/presentation/providers/search_provider_test.dart`
 
 ## Gotchas

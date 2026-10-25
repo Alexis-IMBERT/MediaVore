@@ -21,6 +21,6 @@ Shared formatting, genre maps, sort helpers, and export/import serialization.
   position, `seriesStartTail()` when there is no episode history) and selects the episode to
   anchor to: `findFirstAiredUnseenAfterTail` (aired and unseen) with `findNextEpisodeAfterTail`
   as the pending/undated fallback. Releases anchoring in
-  `MediaRepositoryImpl._refreshNotificationDate` depends on it; keep it pure and unit-tested.
+  `NotificationRefreshService.refreshNotificationDate` (via `NextEpisodeScanner`) depends on it; keep it pure and unit-tested.
 
 Parent: [`lib/AGENTS.md`](../../AGENTS.md) · Root: [`AGENTS.md`](../../../AGENTS.md)
