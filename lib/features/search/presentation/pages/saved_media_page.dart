@@ -4,13 +4,13 @@ import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:mediavore/core/l10n/l10n.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:mediavore/core/di/injection.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/theme/app_palette.dart';
 import 'package:mediavore/features/media_details/presentation/pages/media_detail_page.dart';
-import 'package:mediavore/features/media_details/presentation/widgets/like_button.dart';
 import 'package:mediavore/features/search/domain/repositories/media_repository.dart';
 import 'package:mediavore/features/search/presentation/providers/search_provider.dart';
 import 'package:mediavore/features/settings/presentation/pages/settings_page.dart';
@@ -21,6 +21,9 @@ import 'package:share_plus/share_plus.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:reorderable_grid_view/reorderable_grid_view.dart';
+import 'package:mediavore/features/search/presentation/widgets/saved_media_list_tile.dart';
+import 'package:mediavore/features/search/presentation/widgets/saved_media_grid_item.dart';
+import 'package:mediavore/features/search/presentation/widgets/saved_media_swipe_item.dart';
 
 class SavedMediaPage extends StatefulWidget {
   const SavedMediaPage({super.key});
@@ -51,6 +54,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
   // Sync state tracking for external list mutations
   String _lastSelectedList = 'watchlist';
   Set<String> _lastListSet = {};
+  int? _lastLanguageRevision;
 
   // Edit Mode State
   bool _isEditMode = false;
@@ -240,9 +244,9 @@ class SavedMediaPageState extends State<SavedMediaPage> {
           );
         }
       });
-      items = (await Future.wait(
-        itemFutures,
-      )).where((item) => item.id != 0).toList();
+      items = (await Future.wait(itemFutures))
+          .where((item) => item.id != 0)
+          .toList();
     }
 
     if (mounted) {
@@ -269,8 +273,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     // below reconciles with the persisted state.
     setState(() {
       _currentItems.removeWhere(
-        (item) =>
-            _selectedItems.contains('${item.id}:${item.mediaType.name}'),
+        (item) => _selectedItems.contains('${item.id}:${item.mediaType.name}'),
       );
       _isEditMode = false;
       _selectedItems.clear();
@@ -327,8 +330,8 @@ class SavedMediaPageState extends State<SavedMediaPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'Display Options',
+                Text(
+                  context.l10n.listsDisplayOptions,
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
                 const SizedBox(height: 16),
@@ -360,8 +363,8 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                 ),
                 if (settings.displayMode == DisplayMode.grid) ...[
                   const SizedBox(height: 24),
-                  const Text(
-                    'Grid Size',
+                  Text(
+                    context.l10n.listsGridSize,
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   Row(
@@ -406,17 +409,17 @@ class SavedMediaPageState extends State<SavedMediaPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(
+            Padding(
               padding: EdgeInsets.all(16.0),
               child: Text(
-                'Sharing & Importing',
+                context.l10n.listsSharingImporting,
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
             ),
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.qr_code_scanner),
-              title: const Text('Scan QR Code'),
+              title: Text(context.l10n.listsScanQr),
               onTap: () {
                 Navigator.pop(context);
                 _showScanner();
@@ -424,7 +427,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
             ),
             ListTile(
               leading: const Icon(Icons.link),
-              title: const Text('Import via Link'),
+              title: Text(context.l10n.listsImportViaLink),
               onTap: () {
                 Navigator.pop(context);
                 _showImportLinkDialog(provider);
@@ -433,16 +436,18 @@ class SavedMediaPageState extends State<SavedMediaPage> {
             const Divider(),
             ListTile(
               leading: const Icon(Icons.share),
-              title: const Text('Share Web Link (WhatsApp/SMS)'),
+              title: Text(context.l10n.listsShareWebLink),
               onTap: () {
                 Navigator.pop(context);
                 final link = provider.getShareLinkForList(_selectedList);
-                Share.share('Check out my $_selectedList on MediaVore: $link');
+                Share.share(
+                  context.l10n.listsShareLinkMessage(_selectedList, link),
+                );
               },
             ),
             ListTile(
               leading: const Icon(Icons.qr_code),
-              title: const Text('Show QR Code'),
+              title: Text(context.l10n.listsShowQr),
               onTap: () {
                 Navigator.pop(context);
                 _showQRCodeDialog(provider, settings);
@@ -473,12 +478,12 @@ class SavedMediaPageState extends State<SavedMediaPage> {
 
       await Share.shareXFiles([
         XFile(file.path),
-      ], text: 'Scan this QR code to import my $_selectedList on MediaVore');
+      ], text: context.l10n.listsQrShareMessage(_selectedList));
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error sharing QR code: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.listsQrShareError('$e'))),
+        );
       }
     }
   }
@@ -499,7 +504,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
       builder: (context) => AlertDialog(
         backgroundColor: theme.colorScheme.surface,
         title: Text(
-          'Share $_selectedList',
+          context.l10n.listsShareTitle(_selectedList),
           style: TextStyle(color: theme.colorScheme.onSurface),
         ),
         content: Column(
@@ -585,7 +590,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                     ],
                     const SizedBox(height: 12),
                     Text(
-                      'MediaVore List Share',
+                      context.l10n.listsQrCaption,
                       style: TextStyle(
                         color: colors.logicFlow,
                         fontSize: 14,
@@ -598,7 +603,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Scan this with another phone to import the list.',
+              context.l10n.listsQrHint,
               textAlign: TextAlign.center,
               style: TextStyle(color: theme.colorScheme.onSurface),
             ),
@@ -608,11 +613,11 @@ class SavedMediaPageState extends State<SavedMediaPage> {
           IconButton(
             icon: const Icon(Icons.share),
             onPressed: _shareQRCodeImage,
-            tooltip: 'Share QR Code Image',
+            tooltip: context.l10n.listsShareQrImage,
           ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: Text(context.l10n.commonClose),
           ),
         ],
       ),
@@ -628,7 +633,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
         child: Column(
           children: [
             AppBar(
-              title: const Text('Scan MediaVore List'),
+              title: Text(context.l10n.listsScanTitle),
               leading: IconButton(
                 icon: const Icon(Icons.close),
                 onPressed: () => Navigator.pop(context),
@@ -651,9 +656,9 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                 },
               ),
             ),
-            const Padding(
+            Padding(
               padding: EdgeInsets.all(24.0),
-              child: Text('Point your camera at a MediaVore QR code'),
+              child: Text(context.l10n.listsScanHint),
             ),
           ],
         ),
@@ -675,7 +680,9 @@ class SavedMediaPageState extends State<SavedMediaPage> {
           items,
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[SavedMediaPage] scanned link handling failed: $e');
+    }
   }
 
   void _showImportLinkDialog(SearchProvider provider) {
@@ -683,19 +690,19 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Import via Link'),
+        title: Text(context.l10n.listsImportViaLink),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'Paste the shared link here',
-            labelText: 'Share Link',
+          decoration: InputDecoration(
+            hintText: context.l10n.listsPasteLinkHint,
+            labelText: context.l10n.listsShareLinkLabel,
           ),
           autofocus: true,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () {
@@ -713,16 +720,16 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                   _showImportConfirmationDialog(provider, name, items);
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Invalid link format')),
+                    SnackBar(content: Text(context.l10n.listsInvalidLink)),
                   );
                 }
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Could not parse link')),
+                  SnackBar(content: Text(context.l10n.listsCouldNotParseLink)),
                 );
               }
             },
-            child: const Text('Import'),
+            child: Text(context.l10n.commonImport),
           ),
         ],
       ),
@@ -738,25 +745,25 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Confirm Import'),
+        title: Text(context.l10n.listsConfirmImport),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'You are about to import a list with ${entries.length} items.',
-            ),
+            Text(context.l10n.importListMessage(entries.length)),
             const SizedBox(height: 16),
             TextField(
               controller: controller,
-              decoration: const InputDecoration(labelText: 'List Name'),
+              decoration: InputDecoration(
+                labelText: context.l10n.importListNameLabel,
+              ),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () async {
@@ -770,7 +777,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                 loadSavedMedia();
               }
             },
-            child: const Text('Confirm'),
+            child: Text(context.l10n.commonConfirm),
           ),
         ],
       ),
@@ -802,29 +809,28 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                     ),
                   ),
                   Text(
-                    'Sort Options',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    context.l10n.listsSortOptions,
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
                   _buildSortItem(
                     SortMethod.manual,
-                    'Manual Order',
+                    context.l10n.listsSortManual,
                     Icons.drag_indicator,
-                    'Drag and drop items to reorder',
+                    context.l10n.listsSortManualHint,
                   ),
                   _buildSortItem(
                     SortMethod.releaseDate,
-                    'Release Date',
+                    context.l10n.listsSortReleaseDate,
                     Icons.calendar_today,
-                    'Sort by when it was released',
+                    context.l10n.listsSortReleaseDateHint,
                   ),
                   _buildSortItem(
                     SortMethod.shuffle,
-                    'Shuffle',
+                    context.l10n.listsSortShuffle,
                     Icons.shuffle,
-                    'Randomize the list',
+                    context.l10n.listsSortShuffleHint,
                   ),
                   const Divider(),
                   ListTile(
@@ -832,7 +838,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                       _isReversed ? Icons.swap_vert_circle : Icons.swap_vert,
                       color: _isReversed ? colors.logicFlow : null,
                     ),
-                    title: const Text('Reverse Order'),
+                    title: Text(context.l10n.listsReverseOrder),
                     trailing: Switch(
                       value: _isReversed,
                       activeThumbColor: colors.logicFlow,
@@ -909,6 +915,16 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     final colors = context.appColors;
 
     final currentListSet = provider.getListEntriesCached(_selectedList).toSet();
+    final languageRevision = provider.tmdbLanguageRevision;
+    if (_lastLanguageRevision == null) {
+      _lastLanguageRevision = languageRevision;
+    } else if (_lastLanguageRevision != languageRevision) {
+      // App language changed: details must be re-fetched in the new one.
+      _lastLanguageRevision = languageRevision;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) loadSavedMedia();
+      });
+    }
     if (_lastSelectedList != _selectedList) {
       _lastSelectedList = _selectedList;
       _lastListSet = currentListSet;
@@ -951,9 +967,9 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                 Flexible(
                   child: Text(
                     _isEditMode
-                        ? '${_selectedItems.length} selected'
+                        ? context.l10n.listsSelectedCount(_selectedItems.length)
                         : (_selectedList == 'watchlist'
-                              ? 'Watchlist'
+                              ? context.l10n.listsWatchlist
                               : _selectedList),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -969,7 +985,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                     onPressed: _selectedItems.isEmpty
                         ? null
                         : _removeSelectedItems,
-                    tooltip: 'Remove selected',
+                    tooltip: context.l10n.listsRemoveSelected,
                   ),
                 ]
               : [
@@ -977,17 +993,17 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                     icon: const Icon(Icons.share),
                     onPressed: () =>
                         _showShareAndImportOptions(provider, settings),
-                    tooltip: 'Sharing & Importing',
+                    tooltip: context.l10n.listsSharingImporting,
                   ),
                   IconButton(
                     icon: const Icon(Icons.grid_on),
                     onPressed: _showDisplayModePicker,
-                    tooltip: 'Display Mode',
+                    tooltip: context.l10n.listsDisplayMode,
                   ),
                   IconButton(
                     icon: const Icon(Icons.sort),
                     onPressed: _showSortOptions,
-                    tooltip: 'Sort Options',
+                    tooltip: context.l10n.listsSortOptions,
                   ),
                   IconButton(
                     icon: _isRefreshing
@@ -1029,7 +1045,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
               return const Center(child: CircularProgressIndicator());
             }
             if (displayItems == null || displayItems.isEmpty) {
-              return const Center(child: Text('No items in this list.'));
+              return Center(child: Text(context.l10n.listsEmpty));
             }
 
             final sortedItems = _getFilteredAndSortedItems(
@@ -1067,7 +1083,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
             '${item.id}:${item.mediaType.name}',
           );
 
-          return _MediaListTile(
+          return MediaListTile(
             key: ValueKey('${item.id}_${item.mediaType.name}'),
             index: index,
             item: item,
@@ -1151,7 +1167,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
           '${item.id}:${item.mediaType.name}',
         );
 
-        return _MediaListTile(
+        return MediaListTile(
           key: ValueKey('${item.id}_${item.mediaType.name}'),
           index: index,
           item: item,
@@ -1205,7 +1221,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
             '${item.id}:${item.mediaType.name}',
           );
 
-          return _MediaGridItem(
+          return MediaGridItem(
             key: ValueKey('${item.id}_${item.mediaType.name}'),
             item: item,
             provider: provider,
@@ -1314,7 +1330,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
           '${item.id}:${item.mediaType.name}',
         );
 
-        final mediaTile = _MediaGridItem(
+        final mediaTile = MediaGridItem(
           key: ValueKey('${item.id}_${item.mediaType.name}'),
           item: item,
           provider: provider,
@@ -1346,7 +1362,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
       itemCount: items.length,
       itemBuilder: (context, index) {
         final item = items[index];
-        return _MediaSwipeItem(
+        return MediaSwipeItem(
           key: ValueKey('${item.id}_${item.mediaType.name}'),
           item: item,
           provider: provider,
@@ -1368,7 +1384,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Text(
-                  'Switch List',
+                  context.l10n.listsSwitchList,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
@@ -1385,11 +1401,13 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                     return ListTile(
                       leading: _buildListPreviewIcon(previews, provider),
                       title: Text(
-                        name == 'watchlist' ? 'Watchlist' : name,
+                        name == 'watchlist'
+                            ? context.l10n.listsWatchlist
+                            : name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      subtitle: Text('$count items'),
+                      subtitle: Text(context.l10n.listsItemCount(count)),
                       selected: name == _selectedList,
                       trailing: (name != 'watchlist')
                           ? Row(
@@ -1432,7 +1450,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.add),
-                title: const Text('Create New List'),
+                title: Text(context.l10n.listsCreateNew),
                 onTap: () {
                   Navigator.pop(context);
                   _showCreateListDialog(context, provider);
@@ -1505,16 +1523,16 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('New List'),
+        title: Text(context.l10n.listsNewList),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(hintText: 'List name'),
+          decoration: InputDecoration(hintText: context.l10n.listsNameHint),
           autofocus: true,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () async {
@@ -1535,7 +1553,7 @@ class SavedMediaPageState extends State<SavedMediaPage> {
                 if (context.mounted) Navigator.pop(context);
               }
             },
-            child: const Text('Create'),
+            child: Text(context.l10n.commonCreate),
           ),
         ],
       ),
@@ -1551,14 +1569,12 @@ class SavedMediaPageState extends State<SavedMediaPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete List'),
-        content: Text(
-          'Are you sure you want to delete "$listName"? This will also remove all items from this list.',
-        ),
+        title: Text(context.l10n.listsDeleteList),
+        content: Text(context.l10n.listsDeleteListMessage(listName)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () async {
@@ -1577,473 +1593,12 @@ class SavedMediaPageState extends State<SavedMediaPage> {
               if (context.mounted) Navigator.pop(context);
               loadSavedMedia();
             },
-            child: Text('Delete', style: TextStyle(color: colors.error)),
+            child: Text(
+              context.l10n.commonDelete,
+              style: TextStyle(color: colors.error),
+            ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _MediaListTile extends StatelessWidget {
-  final MediaItem item;
-  final int index;
-  final SearchProvider provider;
-  final SettingsProvider settings;
-  final bool isEditMode;
-  final bool isSelected;
-  final bool isManualSort;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  const _MediaListTile({
-    super.key,
-    required this.index,
-    required this.item,
-    required this.provider,
-    required this.settings,
-    required this.isEditMode,
-    required this.isSelected,
-    required this.isManualSort,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isTv = item.mediaType == MediaType.tv;
-    final isLiked = provider.isLiked(item);
-
-    String lengthText = '';
-    if (isTv) {
-      lengthText = '${item.numberOfSeasons ?? "?"} seasons';
-    } else if (item.runtime != null) {
-      lengthText = '${item.runtime} min';
-    }
-
-    final colors = context.appColors;
-
-    return InkWell(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Container(
-        color: isSelected ? colors.logicFlow.withValues(alpha: 0.1) : null,
-        child: ListTile(
-          leading: _PosterWithBadge(item: item, provider: provider),
-          title: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  item.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (isLiked)
-                Padding(
-                  padding: const EdgeInsets.only(left: 4.0),
-                  child: Icon(
-                    Icons.favorite,
-                    size: 16,
-                    color: colors.likeHeart,
-                  ),
-                ),
-            ],
-          ),
-          subtitle: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(isTv ? Icons.tv : Icons.movie, size: 12, color: Colors.grey),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
-                  '${item.releaseDate.isNotEmpty == true && item.releaseDate.length >= 4 ? item.releaseDate.substring(0, 4) : "?"} • $lengthText',
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
-              ),
-              if (item.voteAverage != null && item.voteAverage! > 0) ...[
-                const Text(' • '),
-                const Icon(Icons.star, color: Colors.amber, size: 12),
-                const SizedBox(width: 2),
-                Text(item.voteAverage!.toStringAsFixed(1)),
-              ],
-            ],
-          ),
-          trailing: isEditMode
-              ? Checkbox(value: isSelected, onChanged: (_) => onTap())
-              : isManualSort
-              ? ReorderableDragStartListener(
-                  index: index,
-                  child: const Icon(Icons.drag_handle),
-                )
-              : null,
-        ),
-      ),
-    );
-  }
-}
-
-class _MediaGridItem extends StatelessWidget {
-  final MediaItem item;
-  final SearchProvider provider;
-  final bool isSelected;
-  final bool isEditMode;
-  final VoidCallback onTap;
-  final VoidCallback? onLongPress;
-
-  const _MediaGridItem({
-    super.key,
-    required this.item,
-    required this.provider,
-    required this.isSelected,
-    required this.isEditMode,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final isTv = item.mediaType == MediaType.tv;
-
-    String lengthText = '';
-    if (isTv) {
-      lengthText = '${item.numberOfSeasons ?? "?"} S';
-    } else if (item.runtime != null) {
-      lengthText = '${item.runtime}m';
-    }
-
-    return InkWell(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                _PosterWithBadge(
-                  item: item,
-                  provider: provider,
-                  width: double.infinity,
-                  height: double.infinity,
-                  showBadge: false,
-                ),
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [Colors.black87, Colors.transparent],
-                      ),
-                    ),
-                    padding: const EdgeInsets.only(
-                      left: 6,
-                      top: 24,
-                      bottom: 6,
-                      right: 18,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                item.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            if (provider.isLiked(item))
-                              Padding(
-                                padding: const EdgeInsets.only(left: 4.0),
-                                child: Icon(
-                                  Icons.favorite,
-                                  size: 10,
-                                  color: colors.likeHeart,
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${item.releaseDate.isNotEmpty == true && item.releaseDate.length >= 4 ? item.releaseDate.substring(0, 4) : ""} • $lengthText',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 9,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            top: 4,
-            right: 4,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (item.voteAverage != null && item.voteAverage! > 0)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    margin: const EdgeInsets.only(right: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.black87,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.star, color: Colors.amber, size: 10),
-                        const SizedBox(width: 2),
-                        Text(
-                          item.voteAverage!.toStringAsFixed(1),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          Positioned(
-            top: 4,
-            left: 4,
-            child: Container(
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Icon(
-                item.mediaType == MediaType.tv ? Icons.tv : Icons.movie,
-                color: Colors.white,
-                size: 10,
-              ),
-            ),
-          ),
-          if (isSelected)
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: colors.logicFlow, width: 3),
-                ),
-              ),
-            ),
-          _PosterBadgeOnly(item: item, provider: provider),
-          if (isEditMode)
-            Positioned(
-              top: 6,
-              left: 6,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  shape: BoxShape.circle,
-                ),
-                padding: const EdgeInsets.all(1),
-                child: Icon(
-                  isSelected
-                      ? Icons.check_circle
-                      : Icons.radio_button_unchecked,
-                  color: isSelected ? colors.logicFlow : colors.placeholder,
-                  size: 20,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MediaSwipeItem extends StatelessWidget {
-  final MediaItem item;
-  final SearchProvider provider;
-  final VoidCallback onReturn;
-
-  const _MediaSwipeItem({
-    super.key,
-    required this.item,
-    required this.provider,
-    required this.onReturn,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32.0),
-      child: Card(
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Column(
-          children: [
-            Expanded(
-              child: InkWell(
-                onTap: () async {
-                  await MediaDetailPage.show(context, item);
-                  onReturn();
-                },
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: _PosterWithBadge(
-                    item: item,
-                    provider: provider,
-                    width: double.infinity,
-                    height: double.infinity,
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Row(
-                children: [
-                  const SizedBox(width: 56), // Balances the larger LikeButton
-                  Expanded(
-                    child: InkWell(
-                      onTap: () async {
-                        await MediaDetailPage.show(context, item);
-                        onReturn();
-                      },
-                      child: Text(
-                        item.title,
-                        style: Theme.of(context).textTheme.headlineSmall,
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                      ),
-                    ),
-                  ),
-                  LikeButton(item: item, iconSize: 32),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PosterWithBadge extends StatelessWidget {
-  final MediaItem item;
-  final SearchProvider provider;
-  final double? width;
-  final double? height;
-  final bool showBadge;
-
-  const _PosterWithBadge({
-    required this.item,
-    required this.provider,
-    this.width = 50,
-    this.height,
-    this.showBadge = true,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final seenCount = provider.getSeenCount(item);
-    final isSeen = seenCount > 0;
-    final isTv = item.mediaType == MediaType.tv;
-    final colors = context.appColors;
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: item.posterPath != null
-              ? CachedNetworkImage(
-                  imageUrl: 'https://image.tmdb.org/t/p/w342${item.posterPath}',
-                  width: width,
-                  height: height,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => const Center(
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  errorWidget: (context, url, error) => Icon(
-                    isTv ? Icons.tv : Icons.movie,
-                    size: (width?.isFinite == true) ? width : 48,
-                  ),
-                )
-              : Container(
-                  width: width,
-                  height: height,
-                  color: colors.placeholder,
-                  child: Icon(
-                    isTv ? Icons.tv : Icons.movie,
-                    size: (width?.isFinite == true) ? (width! / 2) : 24,
-                  ),
-                ),
-        ),
-        if (isSeen && showBadge)
-          _PosterBadgeOnly(item: item, provider: provider),
-      ],
-    );
-  }
-}
-
-// Extract the badge into its own widget
-class _PosterBadgeOnly extends StatelessWidget {
-  final MediaItem item;
-  final SearchProvider provider;
-
-  const _PosterBadgeOnly({required this.item, required this.provider});
-
-  @override
-  Widget build(BuildContext context) {
-    final seenCount = provider.getSeenCount(item);
-    if (seenCount <= 0) return const SizedBox.shrink();
-
-    final isTv = item.mediaType == MediaType.tv;
-    bool isFinished = isTv && item.numberOfEpisodes != null
-        ? seenCount >= item.numberOfEpisodes!
-        : !isTv;
-
-    final colors = context.appColors;
-
-    return Positioned(
-      right: -4,
-      bottom: -4,
-      child: Container(
-        decoration: BoxDecoration(
-          color: isFinished ? colors.badgeBgSeen : colors.badgeBg,
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 1.5),
-        ),
-        padding: const EdgeInsets.all(2),
-        child: Icon(
-          isFinished ? Icons.done_all : Icons.check,
-          size: 10,
-          color: colors.badgeText,
-        ),
       ),
     );
   }

@@ -4,47 +4,25 @@ import 'package:flutter/material.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/domain/entities/media_details.dart';
 import 'package:mediavore/core/domain/entities/seen_item.dart';
-import 'package:mediavore/core/error/exceptions.dart';
+import 'package:mediavore/core/l10n/app_language.dart';
+import 'package:mediavore/core/l10n/l10n.dart';
+import 'package:mediavore/core/l10n/locale_service.dart';
 import 'package:mediavore/core/services/background_task_service.dart';
 import 'package:mediavore/features/search/domain/repositories/media_repository.dart';
+import 'package:mediavore/features/search/presentation/providers/search_error.dart';
+import 'package:mediavore/features/search/presentation/providers/search_relevance.dart';
 
-/// Why the last search/discover request failed, so the UI can react to it.
-enum SearchErrorType { missingApiKey, invalidApiKey, offline, server, unknown }
-
-/// Maps an error thrown by [MediaRepository.searchMedia] / `discoverMedia`
-/// to a [SearchErrorType].
-SearchErrorType classifySearchError(Object error) {
-  if (error is ConfigurationException) return SearchErrorType.missingApiKey;
-  if (error is NetworkException) return SearchErrorType.offline;
-  if (error is ServerException) {
-    final code = error.statusCode;
-    if (code == 401 || code == 403) return SearchErrorType.invalidApiKey;
-    return SearchErrorType.server;
-  }
-  return SearchErrorType.unknown;
-}
-
-/// User-facing message for a [SearchErrorType].
-String searchErrorMessage(SearchErrorType type) {
-  switch (type) {
-    case SearchErrorType.missingApiKey:
-      return 'Add your TMDB API key in Settings to search and discover media.';
-    case SearchErrorType.invalidApiKey:
-      return 'Your TMDB API key was rejected. Check it in Settings.';
-    case SearchErrorType.offline:
-      return "You're offline. Check your connection and try again.";
-    case SearchErrorType.server:
-      return 'TMDB is unavailable right now. Please try again later.';
-    case SearchErrorType.unknown:
-      return 'Something went wrong while loading results.';
-  }
-}
+export 'package:mediavore/features/search/presentation/providers/search_error.dart';
 
 class SearchProvider with ChangeNotifier {
   final MediaRepository repository;
+
+  /// When set, results and saved titles are reloaded on language change.
+  final LocaleService? localeService;
   StreamSubscription<void>? _notifiedItemsSubscription;
 
-  SearchProvider(this.repository) {
+  SearchProvider(this.repository, {this.localeService}) {
+    localeService?.addListener(_onLanguageChanged);
     _init();
   }
 
@@ -76,7 +54,7 @@ class SearchProvider with ChangeNotifier {
   List<int>? _genreIds;
   int? _releaseYear;
   double? _minRating;
-  String? _language;
+  String? _originalLanguage;
   MediaType? _filterType;
   bool _isDiscoverMode = false;
 
@@ -121,41 +99,13 @@ class SearchProvider with ChangeNotifier {
   List<int>? get genreIds => _genreIds;
   int? get releaseYear => _releaseYear;
   double? get minRating => _minRating;
-  String? get language => _language;
+  String? get originalLanguage => _originalLanguage;
   MediaType? get filterType => _filterType;
   bool get isDiscoverMode => _isDiscoverMode;
   String get currentQuery => _currentQuery;
 
-  int _titleSimilarityScore(String query, String title) {
-    final normalizedQuery = query.trim().toLowerCase();
-    if (normalizedQuery.isEmpty) return 0;
-    final normalizedTitle = title.trim().toLowerCase();
-    if (normalizedTitle == normalizedQuery) return 4;
-    if (normalizedTitle.startsWith(normalizedQuery)) return 3;
-    if (normalizedTitle.contains(normalizedQuery)) return 2;
-    final queryWords = normalizedQuery
-        .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty)
-        .toSet();
-    if (queryWords.isEmpty) return 0;
-    final titleWords = normalizedTitle
-        .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty)
-        .toSet();
-    final overlap = queryWords.intersection(titleWords).length;
-    return overlap > 0 ? 1 : 0;
-  }
-
-  void _sortByRelevance(List<MediaItem> items) {
-    items.sort((a, b) {
-      final scoreA = _titleSimilarityScore(_currentQuery, a.title);
-      final scoreB = _titleSimilarityScore(_currentQuery, b.title);
-      if (scoreA != scoreB) return scoreB.compareTo(scoreA);
-      final ratingA = a.voteAverage ?? 0;
-      final ratingB = b.voteAverage ?? 0;
-      return ratingB.compareTo(ratingA);
-    });
-  }
+  void _sortByRelevance(List<MediaItem> items) =>
+      sortMediaByRelevance(items, _currentQuery);
 
   Future<void> _init() async {
     await loadListNames();
@@ -175,8 +125,43 @@ class SearchProvider with ChangeNotifier {
 
   @override
   void dispose() {
+    localeService?.removeListener(_onLanguageChanged);
     _notifiedItemsSubscription?.cancel();
     super.dispose();
+  }
+
+  /// Strings for messages built outside the widget tree.
+  AppLocalizations get _l10n => lookupAppLocalizations(
+    (localeService?.current ?? fallbackAppLanguage).locale,
+  );
+
+  void _onLanguageChanged() => unawaited(reloadForLanguageChange());
+
+  int _tmdbLanguageRevision = 0;
+
+  /// Bumped once the TMDB cache of the previous language is dropped; pages
+  /// that hold TMDB data reload when it changes.
+  int get tmdbLanguageRevision => _tmdbLanguageRevision;
+
+  /// Re-fetches TMDB-sourced titles in the current app language.
+  Future<void> reloadForLanguageChange() async {
+    if (!await repository.applyLanguageChange()) return;
+    _tmdbLanguageRevision++;
+    await _reloadSavedTitles();
+    if (_searchResults.isNotEmpty || _isDiscoverMode) {
+      await searchMedia(_currentQuery);
+    }
+    // Saved titles come from the cache, refilled by the warm-up that the
+    // language change started: reload them once it is done.
+    await repository.fillCache();
+    await _reloadSavedTitles();
+  }
+
+  Future<void> _reloadSavedTitles() async {
+    await _loadAllListEntries();
+    await loadAllSeenStatus();
+    await loadNotifiedItems();
+    await loadQuickAddItems();
   }
 
   void setSelectedTab(int index) {
@@ -459,13 +444,13 @@ class SearchProvider with ChangeNotifier {
     List<int>? genreIds,
     int? releaseYear,
     double? minRating,
-    String? language,
+    String? originalLanguage,
     MediaType? type,
   }) {
     _genreIds = genreIds;
     _releaseYear = releaseYear;
     _minRating = minRating;
-    _language = language;
+    _originalLanguage = originalLanguage;
     _filterType = type;
     notifyListeners();
   }
@@ -474,7 +459,7 @@ class SearchProvider with ChangeNotifier {
     _genreIds = null;
     _releaseYear = null;
     _minRating = null;
-    _language = null;
+    _originalLanguage = null;
     _filterType = null;
     notifyListeners();
   }
@@ -503,7 +488,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: MediaType.movie,
           );
           final tv = await repository.discoverMedia(
@@ -511,7 +496,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: MediaType.tv,
           );
           _searchResults = [...movies, ...tv];
@@ -522,7 +507,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: _filterType!,
           );
         }
@@ -534,7 +519,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: MediaType.movie,
           );
           final tv = await repository.searchMedia(
@@ -543,7 +528,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: MediaType.tv,
           );
           _searchResults = [...movies, ...tv];
@@ -555,7 +540,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: _filterType,
           );
           if (_currentQuery.isNotEmpty) {
@@ -592,7 +577,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: MediaType.movie,
           );
           final tv = await repository.discoverMedia(
@@ -600,7 +585,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: MediaType.tv,
           );
           results = [...movies, ...tv]
@@ -611,7 +596,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: _filterType!,
           );
         }
@@ -623,7 +608,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: MediaType.movie,
           );
           final tv = await repository.searchMedia(
@@ -632,7 +617,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: MediaType.tv,
           );
           results = [...movies, ...tv];
@@ -646,7 +631,7 @@ class SearchProvider with ChangeNotifier {
             genreIds: _genreIds,
             releaseYear: _releaseYear,
             minRating: _minRating,
-            language: _language,
+            originalLanguage: _originalLanguage,
             type: _filterType,
           );
           if (_currentQuery.isNotEmpty) {
@@ -772,15 +757,21 @@ class SearchProvider with ChangeNotifier {
             try {
               final next = await getNextEpisode(item.tmdbId);
               if (next == null) noNext = true;
-            } catch (_) {}
+            } catch (e) {
+              debugPrint('[SearchProvider] markAsSeen getNextEpisode failed: $e');
+            }
 
             if ((isLastEpisode || noNext) && discontinued) {
               await toggleInList(mediaItem, 'watchlist');
             }
-          } catch (_) {}
+          } catch (e) {
+            debugPrint('[SearchProvider] markAsSeen watchlist cleanup failed: $e');
+          }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[SearchProvider] markAsSeen post-processing failed: $e');
+    }
 
     await loadAllSeenStatus();
     await loadNotifiedItems();
@@ -845,7 +836,7 @@ class SearchProvider with ChangeNotifier {
   }) async {
     _isImporting = true;
     _importProgress = 0.0;
-    _importStatus = 'Importing all data...';
+    _importStatus = _l10n.progressImportingAll;
     notifyListeners();
 
     try {
@@ -860,9 +851,9 @@ class SearchProvider with ChangeNotifier {
       );
 
       _importProgress = 1.0;
-      _importStatus = 'Done!';
+      _importStatus = _l10n.progressDone;
     } catch (e) {
-      _importStatus = 'Error: $e';
+      _importStatus = _l10n.progressError('$e');
     } finally {
       await loadAllSeenStatus();
       await loadLikedStatus();
@@ -878,7 +869,9 @@ class SearchProvider with ChangeNotifier {
           await repository.populateQuickAddFromSeenHistory();
           await loadQuickAddItems();
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[SearchProvider] importAllData quick-add population failed: $e');
+      }
 
       _isImporting = false;
       notifyListeners();
@@ -888,7 +881,7 @@ class SearchProvider with ChangeNotifier {
   Future<void> refetchMissingData() async {
     _isImporting = true;
     _importProgress = 0.0;
-    _importStatus = 'Refetching missing runtimes...';
+    _importStatus = _l10n.progressRefetchingRuntimes;
     notifyListeners();
 
     try {
@@ -900,7 +893,7 @@ class SearchProvider with ChangeNotifier {
       int processed = 0;
       for (final item in itemsToUpdate) {
         _importProgress = processed / itemsToUpdate.length;
-        _importStatus = 'Refetching ${item.title}...';
+        _importStatus = _l10n.progressRefetchingItem(item.title);
         notifyListeners();
 
         try {
@@ -952,9 +945,9 @@ class SearchProvider with ChangeNotifier {
       }
 
       _importProgress = 1.0;
-      _importStatus = 'Done refetching data!';
+      _importStatus = _l10n.progressRefetchDone;
     } catch (e) {
-      _importStatus = 'Error: $e';
+      _importStatus = _l10n.progressError('$e');
     } finally {
       await loadAllSeenStatus();
       await updateSeenDbSize();

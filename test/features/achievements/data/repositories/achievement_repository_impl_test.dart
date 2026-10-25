@@ -102,6 +102,36 @@ void main() {
       expect(nightOwl.progress, 1.0);
     });
 
+    test('should not count date-only (midnight) views as Night Owl', () async {
+      // 00:00:00.000 = no time recorded; 00:30 is a real night view
+      final seenItems = [
+        ...List.generate(
+          10,
+          (index) => SeenItemModel(
+            tmdbId: index,
+            type: 'movie',
+            title: 'M',
+            seenDate: DateTime(2023, 1, 1),
+          ),
+        ),
+        SeenItemModel(
+          tmdbId: 100,
+          type: 'movie',
+          title: 'M',
+          seenDate: DateTime(2023, 1, 2, 0, 30),
+        ),
+      ];
+      when(
+        () => mockDataSource.getAllSeenItems(),
+      ).thenAnswer((_) async => seenItems);
+
+      final achievements = await repository.getAchievements();
+      final nightOwl = achievements.firstWhere((a) => a.id == 'night_owl');
+
+      expect(nightOwl.isUnlocked, isFalse);
+      expect(nightOwl.progress, closeTo(0.1, 1e-9));
+    });
+
     test('unlockAchievement should persist to DB', () async {
       final date = DateTime(2023, 1, 1);
       await repository.unlockAchievement('test_id', date);
@@ -140,6 +170,129 @@ void main() {
       expect(movieStarter.title, 'Movie Starter');
     });
 
+    group('with inline definitions', () {
+      AchievementRepositoryImpl repoWith(List<Map<String, dynamic>> defs) =>
+          AchievementRepositoryImpl(
+            isar,
+            mockDataSource,
+            definitionsLoader: _TestDefinitionsLoader(() async => defs),
+          );
+
+      SeenItemModel movie(int id, List<String> genres, {int? runtime}) =>
+          SeenItemModel(
+            tmdbId: id,
+            type: 'movie',
+            title: 'M$id',
+            seenDate: DateTime(2023, 1, id),
+            genres: genres,
+            runtime: runtime,
+          );
+
+      test(
+        'should match genre achievements by TMDB id in any language',
+        () async {
+          when(() => mockDataSource.getAllSeenItems()).thenAnswer(
+            (_) async => [
+              movie(1, ['Horror']),
+              movie(2, ['Horreur', 'Comédie']),
+              movie(3, ['Comedy']),
+            ],
+          );
+          final achievements = await repoWith([
+            {
+              'id': 'genre_horror',
+              'title': 'T',
+              'description': 'D',
+              'iconPath': 'I',
+              'type': 'genre',
+              'params': {'genreId': 27, 'target': 2},
+            },
+            {
+              'id': 'legacy_comedy_by_name',
+              'title': 'T',
+              'description': 'D',
+              'iconPath': 'I',
+              'type': 'genre',
+              'params': {'genre': 'Comedy', 'target': 3},
+            },
+          ]).getAchievements();
+
+          expect(achievements[0].isUnlocked, isTrue);
+          expect(achievements[0].unlockedAt, DateTime(2023, 1, 2));
+          expect(achievements[1].progressLabel, '2/3');
+        },
+      );
+
+      test('should fill group and tier from the definition', () async {
+        when(
+          () => mockDataSource.getAllSeenItems(),
+        ).thenAnswer((_) async => <SeenItemModel>[]);
+        final achievements = await repoWith([
+          {
+            'id': 'movie_10',
+            'title': 'T',
+            'description': 'D',
+            'iconPath': 'I',
+            'type': 'count',
+            'group': 'movies',
+            'tier': 2,
+            'params': {'mediaType': 'movie', 'target': 10},
+          },
+        ]).getAchievements();
+
+        expect(achievements.single.group, 'movies');
+        expect(achievements.single.tier, 2);
+      });
+
+      test(
+        'should report no progress for unknown types or zero targets',
+        () async {
+          when(
+            () => mockDataSource.getAllSeenItems(),
+          ).thenAnswer((_) async => [movie(1, [])]);
+          final achievements = await repoWith([
+            {
+              'id': 'unknown',
+              'title': 'T',
+              'description': 'D',
+              'iconPath': 'I',
+              'type': 'does_not_exist',
+              'params': {'target': 1},
+            },
+            {
+              'id': 'zero',
+              'title': 'T',
+              'description': 'D',
+              'iconPath': 'I',
+              'type': 'count',
+              'params': {'mediaType': 'movie', 'target': 0},
+            },
+          ]).getAchievements();
+
+          expect(achievements.every((a) => !a.isUnlocked), isTrue);
+          expect(achievements.every((a) => a.progress == 0), isTrue);
+        },
+      );
+
+      test('should format runtime progress with readable units', () async {
+        when(
+          () => mockDataSource.getAllSeenItems(),
+        ).thenAnswer((_) async => [movie(1, [], runtime: 1000)]);
+        final achievements = await repoWith([
+          {
+            'id': 'runtime_day_10',
+            'title': 'T',
+            'description': 'D',
+            'iconPath': 'I',
+            'type': 'runtime',
+            'params': {'targetMinutes': 14400},
+          },
+        ]).getAchievements();
+
+        expect(achievements.single.progressLabel, '16h 40m / 10 days');
+      });
+    });
+
     test('clearAchievements should remove all from DB', () async {
       await isar.writeTxn(() async {
         await isar.achievementModels.put(
@@ -151,6 +304,62 @@ void main() {
 
       final count = await isar.achievementModels.count();
       expect(count, 0);
+    });
+
+    test('should count genre milestones across genre name languages', () async {
+      // 5 seen in English, 5 seen in French: same TMDB genre (Horror).
+      final seenItems = [
+        for (var i = 0; i < 10; i++)
+          SeenItemModel(
+            tmdbId: i,
+            type: 'movie',
+            title: 'H$i',
+            seenDate: DateTime(2023, 1, i + 1),
+            genres: [i.isEven ? 'Horror' : 'Horreur'],
+          ),
+      ];
+      when(
+        () => mockDataSource.getAllSeenItems(),
+      ).thenAnswer((_) async => seenItems);
+
+      final achievements = await repository.getAchievements();
+      final horror = achievements.firstWhere((a) => a.id == 'genre_horror');
+
+      expect(horror.isUnlocked, isTrue);
+    });
+
+    test('should expose translated titles from the definitions', () async {
+      when(() => mockDataSource.getAllSeenItems()).thenAnswer((_) async => []);
+      final repo = AchievementRepositoryImpl(
+        isar,
+        mockDataSource,
+        definitionsLoader: _TestDefinitionsLoader(
+          () async => [
+            {
+              'id': 'movie_1',
+              'title': 'Movie Starter',
+              'description': 'Watch your first movie',
+              'iconPath': 'assets/achievements/movie_1.png',
+              'type': 'count',
+              'params': {'mediaType': 'movie', 'target': 1},
+              'translations': {
+                'fr': {
+                  'title': 'Premier film',
+                  'description': 'Regarder votre premier film',
+                },
+              },
+            },
+          ],
+        ),
+      );
+
+      final starter = (await repo.getAchievements()).single;
+
+      expect(starter.titleFor('en'), 'Movie Starter');
+      expect(starter.titleFor('fr'), 'Premier film');
+      expect(starter.descriptionFor('fr'), 'Regarder votre premier film');
+      expect(starter.titleFor('xx'), 'Movie Starter');
+      expect(starter.descriptionFor('xx'), 'Watch your first movie');
     });
   });
 }

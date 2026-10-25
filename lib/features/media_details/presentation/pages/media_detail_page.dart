@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:mediavore/core/l10n/l10n.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/domain/entities/media_details.dart';
 import 'package:mediavore/core/domain/entities/seen_item.dart';
@@ -48,7 +49,9 @@ class MediaDetailPage extends StatefulWidget {
           builder: (context, scrollController) => Container(
             decoration: BoxDecoration(
               color: Theme.of(context).scaffoldBackgroundColor,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
             ),
             clipBehavior: Clip.antiAliasWithSaveLayer,
             child: MediaDetailPage(
@@ -74,7 +77,9 @@ class MediaDetailPage extends StatefulWidget {
           builder: (context, scrollController) => Container(
             decoration: BoxDecoration(
               color: Theme.of(context).scaffoldBackgroundColor,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
             ),
             clipBehavior: Clip.antiAliasWithSaveLayer,
             child: MediaDetailPage(
@@ -151,9 +156,10 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _isOffline = e.toString().contains('SocketException') ||
-                       e.toString().contains('Network error') ||
-                       e.toString().contains('connectionError');
+          _isOffline =
+              e.toString().contains('SocketException') ||
+              e.toString().contains('Network error') ||
+              e.toString().contains('connectionError');
         });
       }
     }
@@ -161,7 +167,10 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
 
   Future<void> _fetchSeenStatus() async {
     final provider = context.read<SearchProvider>();
-    final status = await provider.loadSeenStatusForItem(widget.item.id, widget.item.mediaType);
+    final status = await provider.loadSeenStatusForItem(
+      widget.item.id,
+      widget.item.mediaType,
+    );
     if (mounted) {
       setState(() {
         _seenStatus = status;
@@ -171,7 +180,7 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
 
   Future<void> _fetchSeasonDetails(int seasonNumber) async {
     if (_episodesBySeason.containsKey(seasonNumber)) {
-       setState(() {
+      setState(() {
         _expandedSeason = _expandedSeason == seasonNumber ? null : seasonNumber;
       });
       return;
@@ -184,7 +193,10 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
 
     try {
       final provider = context.read<SearchProvider>();
-      final data = await provider.getSeasonDetails(widget.item.id, seasonNumber);
+      final data = await provider.getSeasonDetails(
+        widget.item.id,
+        seasonNumber,
+      );
       if (mounted) {
         setState(() {
           _episodesBySeason[seasonNumber] = data['episodes'] ?? [];
@@ -198,7 +210,7 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
           _expandedSeason = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cannot load season details while offline.')),
+          SnackBar(content: Text(context.l10n.detailOfflineSeason)),
         );
       }
     }
@@ -206,37 +218,39 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
 
   Future<void> _exportHistory() async {
     final provider = context.read<SearchProvider>();
-    final data = (await provider.loadSeenStatusForItem(
-      widget.item.id,
-      widget.item.mediaType,
-    ))
-        .map(
-          (entry) => {
-            'id': entry.id,
-            'tmdbId': entry.tmdbId,
-            'type': entry.type.name,
-            'title': entry.title,
-            'posterPath': entry.posterPath,
-            'seenDate': entry.seenDate.toIso8601String(),
-            'seasonNumber': entry.seasonNumber,
-            'episodeNumber': entry.episodeNumber,
-            'runtime': entry.runtime,
-            'genres': entry.genres,
-          },
-        )
-        .toList();
+    final data =
+        (await provider.loadSeenStatusForItem(
+              widget.item.id,
+              widget.item.mediaType,
+            ))
+            .map(
+              (entry) => {
+                'id': entry.id,
+                'tmdbId': entry.tmdbId,
+                'type': entry.type.name,
+                'title': entry.title,
+                'posterPath': entry.posterPath,
+                'seenDate': entry.seenDate.toIso8601String(),
+                'seasonNumber': entry.seasonNumber,
+                'episodeNumber': entry.episodeNumber,
+                'runtime': entry.runtime,
+                'genres': entry.genres,
+              },
+            )
+            .toList();
 
     if (data.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No history to export for this item.')),
+          SnackBar(content: Text(context.l10n.detailNoHistoryToExport)),
         );
       }
       return;
     }
 
     final jsonString = jsonEncode(data);
-    final fileName = 'mediavore_${widget.item.title.replaceAll(' ', '_')}_history.json';
+    final fileName =
+        'mediavore_${widget.item.title.replaceAll(' ', '_')}_history.json';
 
     if (mounted) {
       showModalBottomSheet(
@@ -247,7 +261,7 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
             children: [
               ListTile(
                 leading: const Icon(Icons.save_alt),
-                title: const Text('Save to device'),
+                title: Text(context.l10n.dataSaveToDevice),
                 onTap: () async {
                   Navigator.pop(context);
                   await _saveFileToDevice(context, jsonString, fileName);
@@ -255,7 +269,7 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
               ),
               ListTile(
                 leading: const Icon(Icons.share),
-                title: const Text('Share via System'),
+                title: Text(context.l10n.dataShareViaSystem),
                 onTap: () async {
                   Navigator.pop(context);
                   final tempDir = await getTemporaryDirectory();
@@ -263,7 +277,9 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                   await tempFile.writeAsString(jsonString);
                   await Share.shareXFiles(
                     [XFile(tempFile.path, mimeType: 'application/json')],
-                    text: 'Seen history for ${widget.item.title}',
+                    text: context.l10n.detailHistoryShareText(
+                      widget.item.title,
+                    ),
                   );
                 },
               ),
@@ -274,25 +290,29 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
     }
   }
 
-  Future<void> _saveFileToDevice(BuildContext context, String jsonString, String fileName) async {
+  Future<void> _saveFileToDevice(
+    BuildContext context,
+    String jsonString,
+    String fileName,
+  ) async {
     try {
       final bytes = utf8.encode(jsonString);
       final result = await FilePicker.platform.saveFile(
-        dialogTitle: 'Save History',
+        dialogTitle: context.l10n.detailSaveHistoryDialog,
         fileName: fileName,
         initialDirectory: '/storage/emulated/0/Download/MediaVore',
         bytes: bytes,
       );
 
       if (result != null && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('File saved successfully')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(context.l10n.dataFileSaved)));
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Save failed: $e')),
+          SnackBar(content: Text(context.l10n.detailSaveFailed('$e'))),
         );
       }
     }
@@ -320,7 +340,9 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
     final itemToDisplay = _mediaDetails?.item ?? widget.item;
     final colors = context.appColors;
 
-    final String directorLabel = itemToDisplay.mediaType == MediaType.tv ? 'Creator' : 'Director';
+    final String directorLabel = itemToDisplay.mediaType == MediaType.tv
+        ? context.l10n.detailCreator
+        : context.l10n.detailDirector;
 
     final int uniqueEpisodesSeenTotal = _seenStatus
         .where((s) => s.seasonNumber != null && s.episodeNumber != null)
@@ -336,7 +358,10 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
             expandedHeight: widget.isSheet ? 300 : 400,
             pinned: true,
             leading: widget.isSheet
-                ? IconButton(icon: const Icon(Icons.keyboard_arrow_down), onPressed: () => Navigator.pop(context))
+                ? IconButton(
+                    icon: const Icon(Icons.keyboard_arrow_down),
+                    onPressed: () => Navigator.pop(context),
+                  )
                 : null,
             title: Text(itemToDisplay.title),
             actions: [
@@ -346,7 +371,7 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
               IconButton(
                 icon: const Icon(Icons.file_upload_outlined),
                 onPressed: _exportHistory,
-                tooltip: 'Export history for this item',
+                tooltip: context.l10n.detailExportHistory,
               ),
               if (itemToDisplay.mediaType == MediaType.movie)
                 SeenManager(
@@ -359,21 +384,32 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (itemToDisplay.posterPath != null && !Platform.environment.containsKey('FLUTTER_TEST'))
+                  if (itemToDisplay.posterPath != null &&
+                      !Platform.environment.containsKey('FLUTTER_TEST'))
                     Image.network(
                       'https://image.tmdb.org/t/p/w500${itemToDisplay.posterPath}',
                       width: double.infinity,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) => Container(
                         color: colors.placeholder,
-                        child: Center(child: Icon(Icons.broken_image, size: 64, color: colors.comments)),
+                        child: Center(
+                          child: Icon(
+                            Icons.broken_image,
+                            size: 64,
+                            color: colors.comments,
+                          ),
+                        ),
                       ),
                     )
                   else
                     Container(
                       color: colors.placeholder,
                       child: Center(
-                        child: Icon(Icons.movie, size: 100, color: colors.comments),
+                        child: Icon(
+                          Icons.movie,
+                          size: 100,
+                          color: colors.comments,
+                        ),
                       ),
                     ),
                   const TopScrimGradient(),
@@ -402,7 +438,12 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
                   if (_isLoading)
-                    const Center(child: Padding(padding: EdgeInsets.all(32.0), child: CircularProgressIndicator()))
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(32.0),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
                   else ...[
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -414,10 +455,14 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                           ),
                         ),
                         if (itemToDisplay.voteAverage != null && !_isOffline)
-                           Badge(
+                          Badge(
                             label: Row(
                               children: [
-                                Icon(Icons.star, size: 12, color: colors.badgeText),
+                                Icon(
+                                  Icons.star,
+                                  size: 12,
+                                  color: colors.badgeText,
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   itemToDisplay.voteAverage!.toStringAsFixed(1),
@@ -434,26 +479,32 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                     _buildWatchProviders(),
                     const SizedBox(height: 8),
 
-                    if (itemToDisplay.mediaType == MediaType.tv && itemToDisplay.numberOfEpisodes != null) ...[
+                    if (itemToDisplay.mediaType == MediaType.tv &&
+                        itemToDisplay.numberOfEpisodes != null) ...[
                       LinearProgressIndicator(
                         value: itemToDisplay.numberOfEpisodes! > 0
-                            ? uniqueEpisodesSeenTotal / itemToDisplay.numberOfEpisodes!
+                            ? uniqueEpisodesSeenTotal /
+                                  itemToDisplay.numberOfEpisodes!
                             : 0,
                         backgroundColor: colors.placeholder,
                         color: colors.onWatchlist,
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Progress: $uniqueEpisodesSeenTotal / ${itemToDisplay.numberOfEpisodes} episodes seen',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.onWatchlist, fontWeight: FontWeight.bold),
+                        context.l10n.detailProgress(
+                          uniqueEpisodesSeenTotal,
+                          itemToDisplay.numberOfEpisodes!,
+                        ),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.onWatchlist,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 8),
                     ],
 
                     if (itemToDisplay.mediaType == MediaType.tv)
-                      WatchNextButton(
-                        item: itemToDisplay,
-                      ),
+                      WatchNextButton(item: itemToDisplay),
 
                     if (_isOffline)
                       Container(
@@ -461,14 +512,18 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                         width: double.infinity,
                         child: Column(
                           children: [
-                            Icon(Icons.cloud_off, size: 48, color: colors.warning),
+                            Icon(
+                              Icons.cloud_off,
+                              size: 48,
+                              color: colors.warning,
+                            ),
                             const SizedBox(height: 8),
                             Text(
-                              'Offline Mode',
+                              context.l10n.detailOfflineMode,
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                             Text(
-                              'Detailed information is unavailable without internet.',
+                              context.l10n.detailOfflineMessage,
                               textAlign: TextAlign.center,
                               style: TextStyle(color: colors.comments),
                             ),
@@ -476,7 +531,7 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                             ElevatedButton.icon(
                               onPressed: _fetchMediaDetails,
                               icon: const Icon(Icons.refresh),
-                              label: const Text('Try Again'),
+                              label: Text(context.l10n.commonTryAgain),
                             ),
                           ],
                         ),
@@ -486,27 +541,61 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                         spacing: 16,
                         runSpacing: 8,
                         children: [
-                          _SearchIconText(icon: Icons.calendar_today, text: itemToDisplay.releaseDate),
+                          _SearchIconText(
+                            icon: Icons.calendar_today,
+                            text: itemToDisplay.releaseDate,
+                          ),
                           if (itemToDisplay.status != null)
-                            _SearchIconText(icon: Icons.info_outline, text: itemToDisplay.status!),
+                            _SearchIconText(
+                              icon: Icons.info_outline,
+                              text: localizedMediaStatus(
+                                context.l10n,
+                                itemToDisplay.status!,
+                              ),
+                            ),
                           if (itemToDisplay.runtime != null)
-                            _SearchIconText(icon: Icons.access_time, text: Formatters.formatRuntime(itemToDisplay.runtime)),
-                          if (itemToDisplay.mediaType == MediaType.tv && itemToDisplay.numberOfSeasons != null)
-                            _SearchIconText(icon: Icons.tv, text: '${itemToDisplay.numberOfSeasons} Seasons'),
-                          if (itemToDisplay.mediaType == MediaType.tv && itemToDisplay.numberOfEpisodes != null)
-                            _SearchIconText(icon: Icons.subscriptions, text: '${itemToDisplay.numberOfEpisodes} Episodes'),
+                            _SearchIconText(
+                              icon: Icons.access_time,
+                              text: Formatters.formatRuntime(
+                                itemToDisplay.runtime,
+                              ),
+                            ),
+                          if (itemToDisplay.mediaType == MediaType.tv &&
+                              itemToDisplay.numberOfSeasons != null)
+                            _SearchIconText(
+                              icon: Icons.tv,
+                              text: context.l10n.detailSeasonCount(
+                                itemToDisplay.numberOfSeasons!,
+                              ),
+                            ),
+                          if (itemToDisplay.mediaType == MediaType.tv &&
+                              itemToDisplay.numberOfEpisodes != null)
+                            _SearchIconText(
+                              icon: Icons.subscriptions,
+                              text: context.l10n.detailEpisodeCount(
+                                itemToDisplay.numberOfEpisodes!,
+                              ),
+                            ),
                         ],
                       ),
                       const SizedBox(height: 12),
-                      if (itemToDisplay.genres != null && itemToDisplay.genres!.isNotEmpty)
+                      if (itemToDisplay.genres != null &&
+                          itemToDisplay.genres!.isNotEmpty)
                         Wrap(
                           spacing: 8,
-                          children: itemToDisplay.genres!.map((genre) => ActionChip(
-                            label: Text(genre, style: const TextStyle(fontSize: 12)),
-                            padding: EdgeInsets.zero,
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () => _onGenreTapped(genre),
-                          )).toList(),
+                          children: itemToDisplay.genres!
+                              .map(
+                                (genre) => ActionChip(
+                                  label: Text(
+                                    genre,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () => _onGenreTapped(genre),
+                                ),
+                              )
+                              .toList(),
                         ),
                       const SizedBox(height: 8),
 
@@ -514,13 +603,19 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
 
                       if (_mediaDetails?.director != null)
                         Text(
-                          '$directorLabel: ${_mediaDetails!.director!.name}',
+                          context.l10n.detailCreditLine(
+                            directorLabel,
+                            _mediaDetails!.director!.name,
+                          ),
                           style: Theme.of(context).textTheme.titleSmall,
                         ),
                       const SizedBox(height: 16),
-                      const Text(
-                        'Overview',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      Text(
+                        context.l10n.detailOverview,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -529,11 +624,15 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                       ),
                     ],
 
-                    if (itemToDisplay.mediaType == MediaType.tv && itemToDisplay.seasons != null) ...[
+                    if (itemToDisplay.mediaType == MediaType.tv &&
+                        itemToDisplay.seasons != null) ...[
                       const SizedBox(height: 24),
-                      const Text(
-                        'Seasons',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      Text(
+                        context.l10n.detailSeasons,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       ListView.builder(
@@ -545,55 +644,99 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                           final season = itemToDisplay.seasons![index];
                           final seasonNumber = season.seasonNumber;
                           final isExpanded = _expandedSeason == seasonNumber;
-                          final isLoading = _loadingSeasons[seasonNumber] ?? false;
+                          final isLoading =
+                              _loadingSeasons[seasonNumber] ?? false;
 
                           final episodesSeenInSeason = _seenStatus
-                              .where((s) => s.seasonNumber == seasonNumber && s.episodeNumber != null)
+                              .where(
+                                (s) =>
+                                    s.seasonNumber == seasonNumber &&
+                                    s.episodeNumber != null,
+                              )
                               .map((s) => s.episodeNumber)
                               .toSet()
                               .length;
-                          final isComplete = episodesSeenInSeason == season.episodeCount && season.episodeCount > 0;
+                          final isComplete =
+                              episodesSeenInSeason == season.episodeCount &&
+                              season.episodeCount > 0;
 
                           return Column(
                             children: [
                               ListTile(
                                 contentPadding: EdgeInsets.zero,
-                                title: Text(season.name ?? 'Season $seasonNumber'),
+                                title: Text(
+                                  season.name ??
+                                      context.l10n.detailSeasonName(
+                                        seasonNumber,
+                                      ),
+                                ),
                                 subtitle: Text(
-                                  '$episodesSeenInSeason / ${season.episodeCount} episodes seen',
+                                  context.l10n.detailSeasonProgress(
+                                    episodesSeenInSeason,
+                                    season.episodeCount,
+                                  ),
                                   style: TextStyle(
-                                    color: isComplete ? colors.onWatchlist : null,
-                                    fontWeight: isComplete ? FontWeight.bold : null,
+                                    color: isComplete
+                                        ? colors.onWatchlist
+                                        : null,
+                                    fontWeight: isComplete
+                                        ? FontWeight.bold
+                                        : null,
                                   ),
                                 ),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    if (isComplete) Icon(Icons.check_circle, color: colors.onWatchlist),
+                                    if (isComplete)
+                                      Icon(
+                                        Icons.check_circle,
+                                        color: colors.onWatchlist,
+                                      ),
                                     isLoading
-                                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                                      : Icon(isExpanded ? Icons.expand_less : Icons.expand_more),
+                                        ? const SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : Icon(
+                                            isExpanded
+                                                ? Icons.expand_less
+                                                : Icons.expand_more,
+                                          ),
                                   ],
                                 ),
                                 onTap: () => _fetchSeasonDetails(seasonNumber),
                               ),
-                              if (isExpanded && _episodesBySeason.containsKey(seasonNumber))
+                              if (isExpanded &&
+                                  _episodesBySeason.containsKey(seasonNumber))
                                 Padding(
                                   padding: const EdgeInsets.only(left: 16.0),
                                   child: Column(
-                                    children: _episodesBySeason[seasonNumber]!.map<Widget>((episode) {
-                                      return ListTile(
-                                        contentPadding: EdgeInsets.zero,
-                                        title: Text('E${episode['episode_number']}: ${episode['name']}'),
-                                        subtitle: Text(episode['air_date'] ?? ''),
-                                        trailing: SeenManager(
-                                          key: ValueKey('seen_ep_${itemToDisplay.id}_${seasonNumber}_${episode['episode_number']}'),
-                                          item: itemToDisplay,
-                                          seasonNumber: seasonNumber,
-                                          episodeNumber: episode['episode_number'] as int,
-                                        ),
-                                      );
-                                    }).toList(),
+                                    children: _episodesBySeason[seasonNumber]!
+                                        .map<Widget>((episode) {
+                                          return ListTile(
+                                            contentPadding: EdgeInsets.zero,
+                                            title: Text(
+                                              'E${episode['episode_number']}: ${episode['name']}',
+                                            ),
+                                            subtitle: Text(
+                                              episode['air_date'] ?? '',
+                                            ),
+                                            trailing: SeenManager(
+                                              key: ValueKey(
+                                                'seen_ep_${itemToDisplay.id}_${seasonNumber}_${episode['episode_number']}',
+                                              ),
+                                              item: itemToDisplay,
+                                              seasonNumber: seasonNumber,
+                                              episodeNumber:
+                                                  episode['episode_number']
+                                                      as int,
+                                            ),
+                                          );
+                                        })
+                                        .toList(),
                                   ),
                                 ),
                             ],
@@ -604,10 +747,12 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
 
                     if (_mediaDetails != null) ...[
                       const SizedBox(height: 24),
-                      const Text(
-                        'Cast',
+                      Text(
+                        context.l10n.detailCast,
                         style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       SizedBox(
@@ -618,64 +763,78 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                           itemBuilder: (context, index) {
                             final member = _mediaDetails!.cast[index];
                             return GestureDetector(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => ActorDetailPage(
-                                        actorId: member.id,
-                                        actorName: member.name,
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ActorDetailPage(
+                                      actorId: member.id,
+                                      actorName: member.name,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                width: 100,
+                                margin: const EdgeInsets.only(right: 12.0),
+                                child: Column(
+                                  children: [
+                                    member.profilePath != null &&
+                                            !Platform.environment.containsKey(
+                                              'FLUTTER_TEST',
+                                            )
+                                        ? CircleAvatar(
+                                            radius: 40,
+                                            backgroundImage: NetworkImage(
+                                              'https://image.tmdb.org/t/p/w185${member.profilePath}',
+                                            ),
+                                          )
+                                        : CircleAvatar(
+                                            radius: 40,
+                                            backgroundColor: colors.placeholder,
+                                            child: Icon(
+                                              Icons.person,
+                                              color: colors.comments,
+                                            ),
+                                          ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      member.name,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                  );
-                                },
-                                child: Container(
-                                  width: 100,
-                                  margin:
-                                      const EdgeInsets.only(right: 12.0),
-                                  child: Column(
-                                    children: [
-                                      member.profilePath != null && !Platform.environment.containsKey('FLUTTER_TEST')
-                                          ? CircleAvatar(
-                                              radius: 40,
-                                              backgroundImage: NetworkImage(
-                                                  'https://image.tmdb.org/t/p/w185${member.profilePath}'),
-                                            )
-                                          : CircleAvatar(
-                                              radius: 40,
-                                              backgroundColor: colors.placeholder,
-                                              child: Icon(Icons.person, color: colors.comments),
-                                            ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        member.name,
-                                        textAlign: TextAlign.center,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontWeight: FontWeight.bold),
-                                      ),
-                                      Text(
-                                        member.character,
-                                        textAlign: TextAlign.center,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context).textTheme.bodySmall,
-                                      ),
-                                    ],
-                                  ),
-                                )
+                                    Text(
+                                      member.character,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
+                              ),
                             );
                           },
                         ),
                       ),
 
-                      _buildHorizontalList('Similar', _mediaDetails!.similar),
-                      _buildHorizontalList('Recommendations', _mediaDetails!.recommendations),
+                      _buildHorizontalList(
+                        context.l10n.detailSimilar,
+                        _mediaDetails!.similar,
+                      ),
+                      _buildHorizontalList(
+                        context.l10n.detailRecommendations,
+                        _mediaDetails!.recommendations,
+                      ),
                     ],
                     const SizedBox(height: 24),
-                    MediaListManager(
-                      item: itemToDisplay,
-                    ),
+                    MediaListManager(item: itemToDisplay),
                     const SizedBox(height: 40),
                   ],
                 ]),
@@ -702,7 +861,10 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Watch on:', style: TextStyle(fontWeight: FontWeight.bold)),
+        Text(
+          context.l10n.detailWatchOn,
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 4),
         Wrap(
           spacing: 8,
@@ -712,7 +874,8 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: CachedNetworkImage(
-                  imageUrl: 'https://image.tmdb.org/t/p/original${provider['logo_path']}',
+                  imageUrl:
+                      'https://image.tmdb.org/t/p/original${provider['logo_path']}',
                   width: 40,
                   height: 40,
                 ),
@@ -725,9 +888,12 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
   }
 
   Widget _buildTrailers() {
-    if (_mediaDetails?.videos == null || _mediaDetails!.videos!.isEmpty) return const SizedBox.shrink();
+    if (_mediaDetails?.videos == null || _mediaDetails!.videos!.isEmpty)
+      return const SizedBox.shrink();
 
-    final trailers = _mediaDetails!.videos!.where((v) => v['type'] == 'Trailer' && v['site'] == 'YouTube').toList();
+    final trailers = _mediaDetails!.videos!
+        .where((v) => v['type'] == 'Trailer' && v['site'] == 'YouTube')
+        .toList();
     if (trailers.isEmpty) return const SizedBox.shrink();
 
     return Padding(
@@ -735,7 +901,10 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Trailers', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Text(
+            context.l10n.detailTrailers,
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
           SizedBox(
             height: 100,
@@ -747,7 +916,10 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                 final key = trailer['key'];
                 return GestureDetector(
                   onTap: () {
-                    Share.share('https://www.youtube.com/watch?v=$key', subject: 'Watch Trailer');
+                    Share.share(
+                      'https://www.youtube.com/watch?v=$key',
+                      subject: 'Watch Trailer',
+                    );
                   },
                   child: Container(
                     width: 160,
@@ -767,7 +939,11 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                             width: 160,
                           ),
                         ),
-                        const Icon(Icons.play_circle_fill, color: Colors.white, size: 40),
+                        const Icon(
+                          Icons.play_circle_fill,
+                          color: Colors.white,
+                          size: 40,
+                        ),
                       ],
                     ),
                   ),
@@ -787,7 +963,10 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 24),
-        Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 8),
         SizedBox(
           height: 150,
@@ -809,16 +988,35 @@ class _MediaDetailPageState extends State<MediaDetailPage> {
                         borderRadius: BorderRadius.circular(8),
                         child: item.posterPath != null
                             ? CachedNetworkImage(
-                                imageUrl: 'https://image.tmdb.org/t/p/w185${item.posterPath}',
+                                imageUrl:
+                                    'https://image.tmdb.org/t/p/w185${item.posterPath}',
                                 height: 120,
                                 fit: BoxFit.cover,
-                                placeholder: (context, url) => Container(color: Colors.grey[200]),
-                                errorWidget: (context, url, error) => Icon(item.mediaType == MediaType.tv ? Icons.tv : Icons.movie),
+                                placeholder: (context, url) =>
+                                    Container(color: Colors.grey[200]),
+                                errorWidget: (context, url, error) => Icon(
+                                  item.mediaType == MediaType.tv
+                                      ? Icons.tv
+                                      : Icons.movie,
+                                ),
                               )
-                            : Container(height: 120, color: Colors.grey[300], child: Icon(item.mediaType == MediaType.tv ? Icons.tv : Icons.movie)),
+                            : Container(
+                                height: 120,
+                                color: Colors.grey[300],
+                                child: Icon(
+                                  item.mediaType == MediaType.tv
+                                      ? Icons.tv
+                                      : Icons.movie,
+                                ),
+                              ),
                       ),
                       const SizedBox(height: 4),
-                      Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                      Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12),
+                      ),
                     ],
                   ),
                 ),

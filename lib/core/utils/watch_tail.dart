@@ -22,11 +22,34 @@ class EpisodeRef {
 String episodeKey(int seasonNumber, int episodeNumber) =>
     '$seasonNumber:$episodeNumber';
 
-/// The most recently watched episode of a series — the "tail" of the latest
-/// viewing streak.
+/// Keys ([episodeKey]) of the episodes present in [seen].
 ///
-/// [seenDate] determines recency; when two entries share the same date, the one
-/// with the later season, then episode, wins.
+/// When [seenSince] is set, only entries seen at or after that instant count,
+/// which scopes the set to the viewing streak starting at [seenSince].
+/// Entries without a season/episode are ignored.
+Set<String> seenEpisodeKeys(
+  Iterable<SeenItemModel> seen, {
+  DateTime? seenSince,
+}) => {
+  for (final s in seen)
+    if (s.seasonNumber != null &&
+        s.episodeNumber != null &&
+        (seenSince == null || !s.seenDate.isBefore(seenSince)))
+      episodeKey(s.seasonNumber!, s.episodeNumber!),
+};
+
+/// Whether [episode] has a known air date that is not after [now].
+bool isAired(EpisodeRef episode, DateTime now) {
+  final airDate = episode.airDate;
+  return airDate != null && !airDate.isAfter(now);
+}
+
+/// The furthest-along watched episode of a series — the "tail" of the viewing
+/// progress.
+///
+/// Position (season, then episode) determines the tail; [seenDate] only breaks
+/// ties between entries for the same episode, so marking an older episode later
+/// (a rewatch) never moves the tail backwards.
 class WatchTail {
   final int seasonNumber;
   final int episodeNumber;
@@ -42,8 +65,13 @@ class WatchTail {
   String toString() => 'WatchTail(S$seasonNumber E$episodeNumber @ $seenDate)';
 }
 
-/// Returns the latest watched streak's tail from [seenTvItems], or `null` when
+/// Returns the furthest-along watched episode from [seenTvItems], or `null` when
 /// there is no episode-level seen entry.
+///
+/// The highest position (season, then episode) wins regardless of the order the
+/// entries were created; [SeenItemModel.seenDate] only decides between entries
+/// for the same episode. This keeps the tail on the furthest progress rather
+/// than on whichever episode was marked most recently.
 ///
 /// Entries without a season/episode (e.g. a generic "show" mark) are ignored.
 WatchTail? findLatestTail(Iterable<SeenItemModel> seenTvItems) {
@@ -62,14 +90,15 @@ WatchTail? findLatestTail(Iterable<SeenItemModel> seenTvItems) {
       continue;
     }
 
-    final dateCmp = item.seenDate.compareTo(tail.seenDate);
-    final isLater =
-        dateCmp > 0 ||
-        (dateCmp == 0 &&
-            (season > tail.seasonNumber ||
-                (season == tail.seasonNumber && episode > tail.episodeNumber)));
+    final isFurthest =
+        season > tail.seasonNumber ||
+        (season == tail.seasonNumber && episode > tail.episodeNumber);
+    final isSameEpisode =
+        season == tail.seasonNumber &&
+        episode == tail.episodeNumber &&
+        item.seenDate.isAfter(tail.seenDate);
 
-    if (isLater) {
+    if (isFurthest || isSameEpisode) {
       tail = WatchTail(
         seasonNumber: season,
         episodeNumber: episode,
@@ -80,6 +109,17 @@ WatchTail? findLatestTail(Iterable<SeenItemModel> seenTvItems) {
   return tail;
 }
 
+/// Sentinel tail that sits before every episode of a series.
+///
+/// Used when the viewer has no episode-level history at all: every aired
+/// episode then counts as unwatched, so the next episode to surface is the
+/// first aired one of the show.
+WatchTail seriesStartTail() => WatchTail(
+  seasonNumber: 0,
+  episodeNumber: 0,
+  seenDate: DateTime.fromMillisecondsSinceEpoch(0),
+);
+
 /// Returns the first episode after [tail] that the viewer has not seen yet.
 ///
 /// [episodes] must be in viewing order (ascending season, then episode); season
@@ -87,7 +127,8 @@ WatchTail? findLatestTail(Iterable<SeenItemModel> seenTvItems) {
 /// skipped so the result always follows the latest watching streak rather than
 /// an older gap the user already moved past. Episodes present in
 /// [seenEpisodeKeys] (from [episodeKey]) are skipped too, since the viewer has
-/// already watched them.
+/// already watched them. When [where] is given, episodes it rejects are
+/// skipped as well.
 ///
 /// The returned episode may have a `null` [EpisodeRef.airDate] — TMDB often
 /// lists an announced episode before it has an air date, which surfaces in the
@@ -96,10 +137,12 @@ EpisodeRef? findNextEpisodeAfterTail({
   required WatchTail tail,
   required Iterable<EpisodeRef> episodes,
   required Set<String> seenEpisodeKeys,
+  bool Function(EpisodeRef episode)? where,
 }) {
   for (final episode in episodes) {
     if (episode.seasonNumber == 0) continue;
-    if (!_isAfterTail(episode, tail)) continue;
+    if (!isEpisodeAfterTail(episode, tail)) continue;
+    if (where != null && !where(episode)) continue;
     if (seenEpisodeKeys.contains(
       episodeKey(episode.seasonNumber, episode.episodeNumber),
     )) {
@@ -110,9 +153,34 @@ EpisodeRef? findNextEpisodeAfterTail({
   return null;
 }
 
-bool _isAfterTail(EpisodeRef episode, WatchTail tail) {
+/// Whether [episode] comes after [tail] in viewing order.
+bool isEpisodeAfterTail(EpisodeRef episode, WatchTail tail) {
   if (episode.seasonNumber != tail.seasonNumber) {
     return episode.seasonNumber > tail.seasonNumber;
   }
   return episode.episodeNumber > tail.episodeNumber;
 }
+
+/// Returns the first episode after [tail] that has already aired and has not
+/// been seen, or `null` when the viewer is caught up on everything aired.
+///
+/// Same ordering rules as [findNextEpisodeAfterTail] (viewing order, season 0
+/// ignored, nothing at or before the tail qualifies), with two extra filters:
+/// the episode must be absent from [seenEpisodeKeys] and its
+/// [EpisodeRef.airDate] must be known and not after [now]. Use this to anchor a
+/// release to aired-but-unwatched episodes so an announced upcoming episode can
+/// never shadow them. When [where] is given, episodes it rejects are skipped
+/// as well.
+EpisodeRef? findFirstAiredUnseenAfterTail({
+  required WatchTail tail,
+  required Iterable<EpisodeRef> episodes,
+  required Set<String> seenEpisodeKeys,
+  required DateTime now,
+  bool Function(EpisodeRef episode)? where,
+}) => findNextEpisodeAfterTail(
+  tail: tail,
+  episodes: episodes,
+  seenEpisodeKeys: seenEpisodeKeys,
+  where: (episode) =>
+      isAired(episode, now) && (where == null || where(episode)),
+);
