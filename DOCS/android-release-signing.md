@@ -18,12 +18,12 @@ keyPassword=...
 
 A relative `storeFile` is resolved against `android/app/`.
 
-Create a key if you do not have one yet:
-
-```bash
-keytool -genkey -v -keystore ~/upload-keystore.jks -keyalg RSA -keysize 2048 \
-  -validity 10000 -alias upload
-```
+Create the key (once, keep it forever: an app update must be signed with the same key) with
+`tool/generate_android_upload_key.sh [--write-key-properties]`. It writes, in `~/.mediavore-signing/`
+(mode 600), `upload-keystore.jks` and `github-secrets.yaml` (the 4 CI secrets below), prints the
+SHA-256 fingerprint, and with `--write-key-properties` fills `android/key.properties`. The keystore is
+PKCS12, so the store and key passwords are the same. Back up the keystore and its password, then
+delete `github-secrets.yaml` once the secrets are added.
 
 ## CI: environment variables
 
