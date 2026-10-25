@@ -12,6 +12,7 @@ import 'package:mediavore/features/achievements/presentation/providers/achieveme
 import 'package:mediavore/features/search/presentation/providers/search_provider.dart';
 import 'package:mediavore/features/search/domain/repositories/media_repository.dart';
 import 'package:mediavore/features/settings/presentation/providers/settings_provider.dart';
+import 'package:mediavore/core/utils/export_file_name.dart';
 import 'package:mediavore/core/utils/export_import_serializer.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -122,8 +123,7 @@ class DataCacheSettingsPage extends StatelessWidget {
                   final zipBytes = await provider.exportAllData();
                   if (!context.mounted) return;
                   final tempDir = await getTemporaryDirectory();
-                  final fileName =
-                      'mediavore_export_${DateTime.now().millisecondsSinceEpoch}.mdv';
+                  final fileName = exportFileName(DateTime.now());
                   final tempFile = File('${tempDir.path}/$fileName');
                   await tempFile.writeAsBytes(zipBytes);
                   if (context.mounted) {
