@@ -72,10 +72,7 @@ void main() {
   late String tempPath;
 
   setUp(() async {
-    // Avoid downloading native libs during CI/dev runs; change to 'true' if running on a clean machine.
-    try {
-      await Isar.initializeIsarCore(download: false);
-    } catch (_) {}
+    await Isar.initializeIsarCore(download: true);
 
     tempPath =
         '${Directory.current.path}/test/tmp_quickadd_integration_${DateTime.now().microsecondsSinceEpoch}';

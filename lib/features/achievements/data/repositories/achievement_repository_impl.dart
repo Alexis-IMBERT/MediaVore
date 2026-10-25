@@ -11,7 +11,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:mediavore/core/utils/formatters.dart';
-import 'package:mediavore/core/utils/genres.dart';
 import 'package:mediavore/core/di/definitions_loader.dart';
 import 'package:rxdart/rxdart.dart';
 
