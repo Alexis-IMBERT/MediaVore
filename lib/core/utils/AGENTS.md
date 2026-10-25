@@ -4,6 +4,7 @@ Shared formatting, genre maps, sort helpers, and export/import serialization.
 
 ## Key files
 
+- `lib/core/utils/export_file_name.dart`
 - `lib/core/utils/export_import_serializer.dart`
 - `lib/core/utils/formatters.dart`
 - `lib/core/utils/genres.dart`
