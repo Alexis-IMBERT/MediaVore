@@ -18,11 +18,6 @@ jobs:
   checks:
     name: Checks
     uses: ./.github/workflows/ci.yml
-    # A called workflow can only narrow the caller's token: grant what ci.yml's
-    # jobs declare (pr-title asks for pull-requests: read, even when skipped).
-    permissions:
-      contents: read
-      pull-requests: read
 
   android:
     name: Build Android APK
