@@ -235,8 +235,11 @@ jobs:
       BUNDLE_ID: fr.zimberts.mediavore
       # App Store Connect only accepts uploads built with a recent SDK (raised every spring).
       MIN_XCODE_MAJOR: 26
-      KEYCHAIN_PATH: ${{ runner.temp }}/mediavore-signing.keychain-db
     steps:
+      # The `runner` context is not available in job-level `env`, so the path is set here.
+      - name: Set keychain path
+        run: echo "KEYCHAIN_PATH=$RUNNER_TEMP/mediavore-signing.keychain-db" >> "$GITHUB_ENV"
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
