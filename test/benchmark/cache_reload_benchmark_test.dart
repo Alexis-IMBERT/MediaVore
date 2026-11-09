@@ -1,9 +1,12 @@
 // Benchmark of a full cache reload (Wipe, then warm-up) against a fake TMDB
 // server with simulated latency (#212).
 //
-// The fake answers at the HTTP level (Dio adapter), so the measured request
-// count does not depend on how the data source splits its calls. The cache is
-// the real Isar-backed `MediaCache`.
+// The fake answers at the HTTP level (adapter of the app's TMDB Dio, with its
+// rate limiter and retry), so the measured request count does not depend on
+// how the data source splits its calls. The cache is the real Isar-backed
+// `MediaCache`. Half of the library is also in the recent seen history (one
+// row per movie, ten episodes per show) and one title in five is liked, so
+// the same titles come from several sources.
 //
 // N = 50 always runs and guards the request budget. N = 200 and 500 run only
 // with MEDIAVORE_BENCHMARK=1:
@@ -18,7 +21,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
 import 'package:mediavore/core/cache/cached_media.dart';
 import 'package:mediavore/core/cache/media_cache.dart';
+import 'package:mediavore/core/network/tmdb_dio.dart';
+import 'package:mediavore/features/media_details/data/models/liked_item.dart';
 import 'package:mediavore/features/media_details/data/models/media_list_item.dart';
+import 'package:mediavore/features/media_details/data/models/seen_item_model.dart';
 import 'package:mediavore/features/search/data/datasources/media_remote_data_source.dart';
 import 'package:mediavore/features/search/data/services/cache_warmup_service.dart';
 import 'package:mediavore/features/search/data/services/media_details_service.dart';
@@ -29,8 +35,15 @@ import 'package:mocktail/mocktail.dart';
 
 import '../helpers/mocks.dart';
 
-/// Simulated round-trip time of one TMDB request.
-const Duration latency = Duration(milliseconds: 10);
+/// Simulated round-trip time of one TMDB request; 10 ms unless set with
+/// MEDIAVORE_BENCHMARK_LATENCY_MS.
+final Duration latency = Duration(
+  milliseconds:
+      int.tryParse(
+        Platform.environment['MEDIAVORE_BENCHMARK_LATENCY_MS'] ?? '',
+      ) ??
+      10,
+);
 
 /// Seasons per show in the synthetic library.
 const int seasonsPerShow = 6;
@@ -48,6 +61,34 @@ List<MediaListItem> library(int n) => List.generate(n, (i) {
     position: i,
   );
 });
+
+/// Recent seen rows for the first half of [items]: one per movie, ten
+/// episodes of season 1 per show.
+List<SeenItemModel> seenHistory(List<MediaListItem> items) {
+  final seenDate = DateTime.now().subtract(const Duration(days: 1));
+  return [
+    for (final item in items.take(items.length ~/ 2))
+      if (item.type == 'movie')
+        SeenItemModel(
+          tmdbId: item.id,
+          type: 'movie',
+          title: item.title,
+          posterPath: '/p.jpg',
+          seenDate: seenDate,
+        )
+      else
+        for (var e = 1; e <= 10; e++)
+          SeenItemModel(
+            tmdbId: item.id,
+            type: 'tv',
+            title: item.title,
+            posterPath: '/p.jpg',
+            seenDate: seenDate,
+            seasonNumber: 1,
+            episodeNumber: e,
+          ),
+  ];
+}
 
 /// Fake TMDB server: counts requests (per endpoint kind) and the peak number
 /// of requests in flight, and answers after [latency].
@@ -218,7 +259,7 @@ class BenchmarkResult {
         (byKind.entries.toList()..sort((a, b) => b.value.compareTo(a.value)))
             .map((e) => '${e.key}: ${e.value}')
             .join(', ');
-    return 'N=$n  cold: ${cold.inMilliseconds} ms, $coldRequests requests '
+    return 'N=$n latency=${latency.inMilliseconds}ms  cold: ${cold.inMilliseconds} ms, $coldRequests requests '
         '(${(coldRequests / n).toStringAsFixed(2)}/title, '
         'max in flight $maxInFlight)  warm: ${warm.inMilliseconds} ms, '
         '$warmRequests requests\n  cold by endpoint: $kinds';
@@ -255,7 +296,7 @@ void main() {
 
   Future<BenchmarkResult> runBenchmark(int n) async {
     final adapter = FakeTmdbAdapter();
-    final dio = Dio()..httpClientAdapter = adapter;
+    final dio = createTmdbDio()..httpClientAdapter = adapter;
     final remote = MediaRemoteDataSource(
       dio: dio,
       credentials: FakeTmdbCredentialStore('0123456789abcdef0123456789abcdef'),
@@ -265,8 +306,15 @@ void main() {
     final items = library(n);
     when(() => local.getAllListNames()).thenAnswer((_) async => ['watchlist']);
     when(() => local.getListItems('watchlist')).thenAnswer((_) async => items);
-    when(() => local.getAllSeenItems()).thenAnswer((_) async => []);
-    when(() => local.getLikedItems()).thenAnswer((_) async => []);
+    when(
+      () => local.getAllSeenItems(),
+    ).thenAnswer((_) async => seenHistory(items));
+    when(() => local.getLikedItems()).thenAnswer(
+      (_) async => [
+        for (final item in items.where((i) => i.position % 5 == 0))
+          LikedItem(tmdbId: item.id, type: item.type, title: item.title),
+      ],
+    );
     when(() => local.getNotifiedItems()).thenAnswer((_) async => []);
 
     final cache = MediaCache(isar);
