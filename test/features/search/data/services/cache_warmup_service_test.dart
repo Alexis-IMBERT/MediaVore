@@ -11,6 +11,7 @@ import 'package:mediavore/features/search/data/services/media_details_service.da
 import 'package:mediavore/features/search/data/services/next_episode_scanner.dart';
 import 'package:mediavore/features/search/data/services/notification_refresh_service.dart';
 import 'package:mediavore/features/search/data/services/quick_add_service.dart';
+import 'package:mediavore/features/search/domain/repositories/media_repository.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../../helpers/mocks.dart';
@@ -118,6 +119,74 @@ void main() {
       listNames.complete([]);
 
       expect(await run, isFalse);
+      verifyNever(
+        () => cache.cleanup(
+          keepKeys: any(named: 'keepKeys'),
+          olderThan: any(named: 'olderThan'),
+        ),
+      );
+    });
+
+    test('should report progress per title, then clear it', () async {
+      final items = [
+        for (var i = 0; i < 3; i++)
+          MediaListItem(id: i, type: 'movie', title: 'M$i'),
+      ];
+      when(
+        () => local.getListItems('watchlist'),
+      ).thenAnswer((_) async => items);
+      when(() => cache.getDetails(any(), MediaType.movie)).thenAnswer((
+        invocation,
+      ) async {
+        final id = invocation.positionalArguments[0] as int;
+        return MediaDetails(
+          item: MediaItem(id: id, title: 'M$id', overview: '', releaseDate: ''),
+          cast: const [],
+        );
+      });
+      final seen = <CacheWarmupProgress?>[];
+      warmup.progress.addListener(() => seen.add(warmup.progress.value));
+      listNames.complete(['watchlist']);
+
+      expect(await warmup.run(), isTrue);
+      expect(seen, const [
+        CacheWarmupProgress(0, 3),
+        CacheWarmupProgress(1, 3),
+        CacheWarmupProgress(2, 3),
+        CacheWarmupProgress(3, 3),
+        null,
+      ]);
+    });
+
+    test('should stop between titles when cancelled mid-run', () async {
+      final items = [
+        for (var i = 0; i < 20; i++)
+          MediaListItem(id: i, type: 'movie', title: 'M$i'),
+      ];
+      when(
+        () => local.getListItems('watchlist'),
+      ).thenAnswer((_) async => items);
+      when(() => cache.getDetails(any(), MediaType.movie)).thenAnswer((
+        invocation,
+      ) async {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        final id = invocation.positionalArguments[0] as int;
+        return MediaDetails(
+          item: MediaItem(id: id, title: 'M$id', overview: '', releaseDate: ''),
+          cast: const [],
+        );
+      });
+      warmup.progress.addListener(() {
+        if (warmup.progress.value?.done == 1) warmup.cancel();
+      });
+      listNames.complete(['watchlist']);
+
+      expect(await warmup.run(), isFalse);
+      expect(warmup.progress.value, isNull);
+      // Only the titles already in flight when cancelled are finished.
+      verify(
+        () => cache.getDetails(any(), MediaType.movie),
+      ).called(lessThanOrEqualTo(CacheWarmupService.concurrency));
       verifyNever(
         () => cache.cleanup(
           keepKeys: any(named: 'keepKeys'),

@@ -536,6 +536,12 @@ abstract class AppLocalizations {
   /// **'Pre-cache all items in your lists and recent history for offline use.'**
   String get dataFillCacheSubtitle;
 
+  /// No description provided for @dataFillCacheProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Caching titles: {done} / {total}'**
+  String dataFillCacheProgress(int done, int total);
+
   /// No description provided for @dataWipeCache.
   ///
   /// In en, this message translates to:

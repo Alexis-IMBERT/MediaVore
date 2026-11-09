@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/domain/entities/media_details.dart';
 import 'package:mediavore/core/domain/entities/seen_item.dart';
@@ -195,6 +195,13 @@ class SearchProvider with ChangeNotifier {
     _isCacheLoading = false;
     notifyListeners();
   }
+
+  /// Progress of the running cache warm-up; `null` when none is running.
+  ValueListenable<CacheWarmupProgress?> get cacheWarmupProgress =>
+      repository.cacheWarmupProgress;
+
+  /// Stops the running cache fill; [fillCache] then completes.
+  void cancelCacheFill() => repository.cancelCacheWarmup();
 
   Future<void> fillCache() async {
     _isCacheLoading = true;

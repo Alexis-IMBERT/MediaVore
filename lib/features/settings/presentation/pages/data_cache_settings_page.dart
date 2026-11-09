@@ -66,12 +66,20 @@ class DataCacheSettingsPage extends StatelessWidget {
                   action: () => provider.clearCache(complete: false),
                 ),
               ),
-              ListTile(
-                leading: const Icon(Icons.download),
-                title: Text(context.l10n.dataFillCache),
-                subtitle: Text(context.l10n.dataFillCacheSubtitle),
-                enabled: !isCacheLoading,
-                onTap: () => provider.fillCache(),
+              ValueListenableBuilder<CacheWarmupProgress?>(
+                valueListenable: provider.cacheWarmupProgress,
+                builder: (context, progress, _) => progress == null
+                    ? ListTile(
+                        leading: const Icon(Icons.download),
+                        title: Text(context.l10n.dataFillCache),
+                        subtitle: Text(context.l10n.dataFillCacheSubtitle),
+                        enabled: !isCacheLoading,
+                        onTap: () => provider.fillCache(),
+                      )
+                    : _CacheFillProgressTile(
+                        progress: progress,
+                        onCancel: provider.cancelCacheFill,
+                      ),
               ),
               ListTile(
                 leading: Icon(Icons.delete_forever, color: colors.error),
@@ -505,6 +513,35 @@ class _SectionHeader extends StatelessWidget {
           color: Theme.of(context).colorScheme.primary,
           fontWeight: FontWeight.bold,
         ),
+      ),
+    );
+  }
+}
+
+/// Running cache warm-up: titles done out of the total, with a cancel button.
+class _CacheFillProgressTile extends StatelessWidget {
+  final CacheWarmupProgress progress;
+  final VoidCallback onCancel;
+
+  const _CacheFillProgressTile({
+    required this.progress,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.download),
+      title: Text(
+        context.l10n.dataFillCacheProgress(progress.done, progress.total),
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: LinearProgressIndicator(value: progress.fraction),
+      ),
+      trailing: TextButton(
+        onPressed: onCancel,
+        child: Text(context.l10n.commonCancel),
       ),
     );
   }

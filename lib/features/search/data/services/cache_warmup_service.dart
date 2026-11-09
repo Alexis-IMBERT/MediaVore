@@ -4,6 +4,7 @@ import 'package:mediavore/core/domain/entities/media_item.dart';
 import 'package:mediavore/core/utils/bounded_concurrency.dart';
 import 'package:mediavore/features/media_details/data/datasources/media_list_local_data_source.dart';
 import 'package:mediavore/features/search/data/services/media_details_service.dart';
+import 'package:mediavore/features/search/domain/repositories/media_repository.dart';
 import 'package:mediavore/features/search/data/services/notification_refresh_service.dart';
 
 /// Background filling/refreshing of the TMDB cache from the saved lists, seen
@@ -20,6 +21,9 @@ class CacheWarmupService {
   final bool Function()? hasCredential;
   final MediaDetailsService details;
   final NotificationRefreshService notifications;
+
+  /// Progress of the running warm-up; `null` when none is running.
+  final ValueNotifier<CacheWarmupProgress?> progress = ValueNotifier(null);
 
   /// Titles refreshed in parallel during a warm-up.
   static const int concurrency = 6;
@@ -154,13 +158,17 @@ class CacheWarmupService {
       final keysToKeep = <String>{};
       final tasks = await _planTasks(keysToKeep);
       if (cancelled()) return false;
+      var done = 0;
+      progress.value = CacheWarmupProgress(0, tasks.length);
 
       // Titles are refreshed [concurrency] at a time; the TMDB Dio keeps the
       // request rate under the API limit (RateLimitInterceptor).
       await mapWithConcurrency(tasks, concurrency, (task) async {
         if (cancelled()) return;
         await _refresh(task);
+        progress.value = CacheWarmupProgress(++done, tasks.length);
       });
+      if (cancelled()) return false;
 
       // 4. Refresh notification dates from network in the background
       if (cancelled()) return false;
@@ -177,6 +185,8 @@ class CacheWarmupService {
     } catch (e) {
       debugPrint('[Repo] Background _initCache error: $e');
       return false;
+    } finally {
+      progress.value = null;
     }
   }
 }
